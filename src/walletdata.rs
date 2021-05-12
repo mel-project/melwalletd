@@ -1,0 +1,130 @@
+use blkstructs::{melvm::Covenant, CoinData, CoinDataHeight, CoinID, Denom, Transaction, TxKind};
+use serde::{Deserialize, Serialize};
+use tmelcrypt::HashVal;
+
+/// Immutable & cloneable in-memory data that can be persisted.
+/// Does not store secrets!
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct WalletData {
+    unspent_coins: im::HashMap<CoinID, CoinDataHeight>,
+    spent_coins: im::HashMap<CoinID, CoinDataHeight>,
+    tx_in_progress: im::HashMap<HashVal, Transaction>,
+    my_covenant: Covenant,
+}
+
+impl WalletData {
+    /// Create a new data.
+    pub fn new(my_covenant: Covenant) -> Self {
+        WalletData {
+            unspent_coins: im::HashMap::new(),
+            spent_coins: im::HashMap::new(),
+            tx_in_progress: im::HashMap::new(),
+            my_covenant,
+        }
+    }
+
+    /// Obtain a reference to my covenant
+    pub fn my_covenant(&self) -> &Covenant {
+        &self.my_covenant
+    }
+
+    /// Unspent Coins
+    pub fn unspent_coins(&self) -> &im::HashMap<CoinID, CoinDataHeight> {
+        &self.unspent_coins
+    }
+
+    /// Spent Coins
+    pub fn spent_coins(&self) -> &im::HashMap<CoinID, CoinDataHeight> {
+        &self.spent_coins
+    }
+
+    /// Inserts a coin into the data, returning whether or not the coin already exists.
+    pub fn insert_coin(&mut self, coin_id: CoinID, coin_data_height: CoinDataHeight) -> bool {
+        self.spent_coins.get(&coin_id).is_none()
+            && self
+                .unspent_coins
+                .insert(coin_id, coin_data_height)
+                .is_none()
+    }
+
+    /// Creates an **unsigned** transaction out of the coins in the data. Does not spend it yet.
+    pub fn prepare(
+        &self,
+        outputs: Vec<CoinData>,
+        fee_multiplier: u128,
+        sig_size: usize,
+        sig_count: usize,
+    ) -> anyhow::Result<Transaction> {
+        // find coins that might match
+        let mut txn = Transaction {
+            kind: TxKind::Normal,
+            inputs: vec![],
+            outputs,
+            fee: 0,
+            scripts: vec![self.my_covenant.clone()],
+            data: vec![],
+            sigs: vec![vec![0u8; sig_size]; sig_count], // more accurate than ballast
+        };
+
+        const TIP_MICROMELS: u128 = 100;
+        // estimate fees
+        let estimated_fees = txn.base_fee(fee_multiplier, 0) + TIP_MICROMELS;
+        txn.fee = estimated_fees;
+        txn.sigs.clear();
+
+        // compute output sum
+        let output_sum = txn.total_outputs();
+
+        let mut input_sum: im::HashMap<Denom, u128> = im::HashMap::new();
+        for (coin, data) in self.unspent_coins.iter() {
+            let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(0);
+            if existing_val < output_sum.get(&data.coin_data.denom).cloned().unwrap_or(0) {
+                txn.inputs.push(*coin);
+                input_sum.insert(data.coin_data.denom, existing_val + data.coin_data.value);
+            }
+        }
+
+        // create change outputs
+        let change = {
+            let mut change = Vec::new();
+            for (cointype, sum) in output_sum.iter() {
+                let difference = input_sum
+                    .get(cointype)
+                    .unwrap_or(&0)
+                    .checked_sub(*sum)
+                    .ok_or_else(|| anyhow::anyhow!("not enough money"))?;
+                if difference > 0 {
+                    change.push(CoinData {
+                        covhash: self.my_covenant.hash(),
+                        value: difference,
+                        denom: *cointype,
+                        additional_data: vec![],
+                    })
+                }
+            }
+            change
+        };
+        txn.outputs.extend(change.into_iter());
+        assert!(txn.is_well_formed());
+        Ok(txn)
+    }
+
+    /// Informs the state of a sent transaction. This transaction must only spend coins that are in the wallet. Such a transaction can be created using [WalletData::prepare].
+    pub fn commit_sent(&mut self, txn: Transaction) -> anyhow::Result<()> {
+        // we clone self to guarantee error-safety
+        let mut oself = self.clone();
+        // move coins from spent to unspent
+        for input in txn.inputs.iter().cloned() {
+            let coindata = oself
+                .unspent_coins
+                .remove(&input)
+                .ok_or_else(|| anyhow::anyhow!("no such coin in data"))?;
+            oself.spent_coins.insert(input, coindata);
+        }
+        // put tx in progress
+        self.tx_in_progress.insert(txn.hash_nosigs(), txn);
+        // "commit"
+        *self = oself;
+        Ok(())
+    }
+}

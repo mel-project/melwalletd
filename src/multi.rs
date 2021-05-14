@@ -1,14 +1,15 @@
 use anyhow::Context;
-use blkstructs::melvm::Covenant;
+use blkstructs::{melvm::Covenant, NetID};
 use dashmap::DashMap;
-use std::io::prelude::*;
 use std::path::{Path, PathBuf};
+use std::{io::prelude::*, sync::Arc};
 
 use crate::{acidjson::AcidJson, walletdata::WalletData};
 
 /// Represents a whole directory of wallet JSON files.
+#[derive(Clone)]
 pub struct MultiWallet {
-    cache: DashMap<String, AcidJson<WalletData>>,
+    cache: Arc<DashMap<String, AcidJson<WalletData>>>,
     dirname: PathBuf,
 }
 
@@ -49,11 +50,16 @@ impl MultiWallet {
     }
 
     /// Creates a wallet. **WARNING**: will silently overwrite any wallet with the same name.
-    pub fn create_wallet(&self, name: &str, covenant: Covenant) -> anyhow::Result<()> {
+    pub fn create_wallet(
+        &self,
+        name: &str,
+        covenant: Covenant,
+        network: NetID,
+    ) -> anyhow::Result<()> {
         if !valid_wallet_name(name) {
             anyhow::bail!("invalid wallet name")
         }
-        let wdata = WalletData::new(covenant);
+        let wdata = WalletData::new(covenant, network);
         let fname = format!("{}.json", name);
         let mut fpath = self.dirname.clone();
         fpath.push(PathBuf::from(fname));

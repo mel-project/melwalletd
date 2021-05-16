@@ -156,27 +156,41 @@ async fn confirm_one(wallet: AcidJson<WalletData>, client: ValClient) -> anyhow:
     if in_progress.is_empty() {
         return Ok(());
     }
-    let random_tx = &in_progress[nanorand::tls_rng().generate_range(0, in_progress.len())];
-    // find some change output
-    let my_covhash = wallet.read().my_covenant().hash();
-    let (change_idx, _) = random_tx
-        .outputs
-        .iter()
-        .enumerate()
-        .find(|v| v.1.covhash == my_covhash)
-        .expect("in-progress transaction must have a change output");
-    let coin_id = random_tx.get_coinid(change_idx as u8);
-    log::debug!("confirm_one looking at {}", coin_id);
     let snapshot = client.snapshot().await.context("cannot snapshot")?;
-    let cdh = snapshot
-        .get_coin(random_tx.get_coinid(change_idx as u8))
-        .await
-        .context("cannot get coin")?;
-    if let Some(cdh) = cdh {
-        log::debug!("confirmed {} at height {}", coin_id, cdh.height);
-        wallet.write().insert_coin(coin_id, cdh);
+    let random_tx = &in_progress[nanorand::tls_rng().generate_range(0, in_progress.len())];
+    if nanorand::tls_rng().generate_range(0u8, 10) == 0 {
+        if let Err(err) = snapshot.get_raw().send_tx(random_tx.clone()).await {
+            log::debug!(
+                "retransmission of {} saw error: {:?}",
+                random_tx.hash_nosigs(),
+                err
+            );
+        }
+        Ok(())
     } else {
-        log::debug!("{} not confirmed yet", coin_id);
+        // find some change output
+        let my_covhash = wallet.read().my_covenant().hash();
+        let change_indexes = random_tx
+            .outputs
+            .iter()
+            .enumerate()
+            .filter(|v| v.1.covhash == my_covhash)
+            .map(|v| v.0);
+        for change_idx in change_indexes {
+            let coin_id = random_tx.get_coinid(change_idx as u8);
+            log::debug!("confirm_one looking at {}", coin_id);
+            let cdh = snapshot
+                .get_coin(random_tx.get_coinid(change_idx as u8))
+                .await
+                .context("cannot get coin")?;
+            if let Some(cdh) = cdh {
+                log::debug!("confirmed {} at height {}", coin_id, cdh.height);
+                wallet.write().insert_coin(coin_id, cdh);
+            } else {
+                log::debug!("{} not confirmed yet", coin_id);
+                break;
+            }
+        }
+        Ok(())
     }
-    Ok(())
 }

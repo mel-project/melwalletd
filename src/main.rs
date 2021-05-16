@@ -5,8 +5,9 @@ mod walletdata;
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
-use blkstructs::{CoinData, CoinID, NetID, Transaction};
+use blkstructs::{CoinData, CoinID, Denom, NetID, Transaction, TxKind, MICRO_CONVERTER};
 use multi::MultiWallet;
+use nanorand::RNG;
 use nodeprot::ValClient;
 use serde::Deserialize;
 use state::AppState;
@@ -51,6 +52,7 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/utxos/:coinid").put(add_coin);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
+        app.at("/wallets/:name/send-faucet").post(send_faucet);
         app.listen(args.listen).await?;
         Ok(())
     })
@@ -112,6 +114,8 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     struct Req {
         outputs: Vec<CoinData>,
         signing_key: String,
+        kind: Option<TxKind>,
+        data: Option<Vec<u8>>,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
@@ -126,10 +130,18 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let client = req.state().client(wallet.read().network()).clone();
     let snapshot = client.snapshot().await.map_err(to_badgateway)?;
     let fee_multiplier = snapshot.current_header().fee_multiplier;
+    let kind = request.kind;
+    let data = request.data.clone();
     let prepared_tx = smol::unblock(move || {
         wallet
             .read()
             .prepare(request.outputs, fee_multiplier, |mut tx: Transaction| {
+                if let Some(kind) = kind {
+                    tx.kind = kind
+                }
+                if let Some(data) = data.clone() {
+                    tx.data = data
+                }
                 for _ in 0..tx.inputs.len() {
                     tx = tx.signed_ed25519(signing_key);
                 }
@@ -143,16 +155,6 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 }
 
 async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    async fn actual_send(client: ValClient, tx: Transaction) -> anyhow::Result<()> {
-        let snapshot = client.snapshot().await.context("cannot snapshot")?;
-        snapshot
-            .get_raw()
-            .send_tx(tx)
-            .await
-            .context("cannot send tx")?;
-        Ok(())
-    }
-
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let tx: Transaction = req.body_json().await?;
     let wallet = req
@@ -161,18 +163,41 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .get_wallet(&wallet_name)
         .map_err(to_badreq)?;
     // we mark the TX as sent in this thread
-    wallet.write().commit_sent(tx.clone()).map_err(to_badreq)?;
-    // spin off another thread to actual send it away.
-    let client = req.state().client(wallet.read().network()).clone();
-    let txhash = tx.hash_nosigs();
-    smolscale::spawn(async move {
-        if let Err(err) = actual_send(client, tx).await {
-            log::warn!("failed to send tx {} on first go: {:?}", txhash, err)
-        } else {
-            log::debug!("successfully sent tx {} initially", txhash)
-        }
-    })
-    .detach();
+    wallet.write().commit_sent(tx).map_err(to_badreq)?;
+    Ok(Body::from_bytes(vec![]))
+}
+
+async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let wallet = req
+        .state()
+        .multi()
+        .get_wallet(&wallet_name)
+        .map_err(to_badreq)?;
+    if wallet.read().network() != NetID::Testnet {
+        return Err(tide::Error::new(
+            StatusCode::BadRequest,
+            anyhow::anyhow!("not testnet"),
+        ));
+    }
+    let tx = Transaction {
+        kind: TxKind::Faucet,
+        inputs: vec![],
+        outputs: vec![CoinData {
+            covhash: wallet.read().my_covenant().hash(),
+            value: 1001 * MICRO_CONVERTER,
+            denom: Denom::Mel,
+            additional_data: vec![],
+        }],
+        data: (0..32)
+            .map(|_| nanorand::tls_rng().generate_range(u8::MIN, u8::MAX))
+            .collect(),
+        fee: MICRO_CONVERTER,
+        scripts: vec![],
+        sigs: vec![],
+    };
+    // we mark the TX as sent in this thread
+    wallet.write().commit_sent(tx).map_err(to_badreq)?;
     Ok(Body::from_bytes(vec![]))
 }
 

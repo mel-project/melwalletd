@@ -17,8 +17,6 @@ use tide::{Body, Request, StatusCode};
 use tide::security::{CorsMiddleware, Origin};
 use tmelcrypt::Ed25519SK;
 
-const LOCAL_UI_ADDR: &str = "http://127.0.0.1:5000";
-
 #[derive(StructOpt)]
 struct Args {
     #[structopt(long)]
@@ -49,12 +47,8 @@ fn main() -> anyhow::Result<()> {
 
         let state = AppState::new(multiwallet, args.mainnet_connect, args.testnet_connect);
 
-        // Only allow connection from local frontend
-        let cors = CorsMiddleware::new()
-            .allow_origin(Origin::Exact(LOCAL_UI_ADDR.to_string()));
-
         let mut app = tide::with_state(Arc::new(state));
-        app.with(cors);
+        app.with(CorsMiddleware::new());
         app.at("/wallets").get(list_wallets);
         app.at("/wallets/:name").get(dump_wallet);
         app.at("/wallets/:name").put(create_wallet);

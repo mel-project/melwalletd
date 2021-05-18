@@ -199,8 +199,9 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         sigs: vec![],
     };
     // we mark the TX as sent in this thread
+    let txhash = tx.hash_nosigs();
     wallet.write().commit_sent(tx).map_err(to_badreq)?;
-    Ok(Body::from_bytes(vec![]))
+    Ok(Body::from_json(&txhash)?)
 }
 
 fn to_badreq<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -> tide::Error {

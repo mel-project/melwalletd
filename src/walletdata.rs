@@ -19,9 +19,7 @@ pub struct WalletData {
     unspent_coins: BTreeMap<CoinID, CoinDataHeight>,
     #[serde_as(as = "Vec<(_, _)>")]
     spent_coins: BTreeMap<CoinID, CoinDataHeight>,
-    #[serde_as(as = "Vec<(_, _)>")]
     tx_in_progress: BTreeMap<HashVal, Transaction>,
-    #[serde_as(as = "Vec<(_, _)>")]
     tx_confirmed: BTreeMap<HashVal, (Transaction, u64)>,
     my_covenant: Covenant,
     network: NetID,

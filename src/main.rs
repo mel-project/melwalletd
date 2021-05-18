@@ -8,13 +8,12 @@ use anyhow::Context;
 use blkstructs::{CoinData, CoinID, Denom, NetID, Transaction, TxKind, MICRO_CONVERTER};
 use multi::MultiWallet;
 use nanorand::RNG;
-use nodeprot::ValClient;
 use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
+use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
-use tide::security::{CorsMiddleware, Origin};
 use tmelcrypt::Ed25519SK;
 
 #[derive(StructOpt)]
@@ -22,13 +21,13 @@ struct Args {
     #[structopt(long)]
     wallet_dir: PathBuf,
 
-    #[structopt(long)]
+    #[structopt(long, default_value = "127.0.0.1:11773")]
     listen: SocketAddr,
 
-    #[structopt(long)]
+    #[structopt(long, default_value = "51.83.255.223:11814")]
     mainnet_connect: SocketAddr,
 
-    #[structopt(long)]
+    #[structopt(long, default_value = "94.237.109.44:11814")]
     testnet_connect: SocketAddr,
 }
 

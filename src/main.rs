@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use structopt::StructOpt;
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
-use tmelcrypt::Ed25519SK;
+use tmelcrypt::{Ed25519SK, HashVal};
 
 #[derive(StructOpt)]
 struct Args {
@@ -51,10 +51,11 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets").get(list_wallets);
         app.at("/wallets/:name").get(dump_wallet);
         app.at("/wallets/:name").put(create_wallet);
-        app.at("/wallets/:name/utxos/:coinid").put(add_coin);
+        app.at("/wallets/:name/coins/:coinid").put(add_coin);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
         app.at("/wallets/:name/send-faucet").post(send_faucet);
+        app.at("/wallets/:name/transactions/:txhash").get(get_tx);
         app.listen(args.listen).await?;
         Ok(())
     })
@@ -164,9 +165,21 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .multi()
         .get_wallet(&wallet_name)
         .map_err(to_badreq)?;
-    // we mark the TX as sent in this thread
-    wallet.write().commit_sent(tx).map_err(to_badreq)?;
-    Ok(Body::from_bytes(vec![]))
+    // we mark the TX as sent in this thread. confirmer will send it off later.
+    wallet.write().commit_sent(tx.clone()).map_err(to_badreq)?;
+    Ok(Body::from_json(&tx.hash_nosigs())?)
+}
+
+async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
+    let wallet = req
+        .state()
+        .multi()
+        .get_wallet(&wallet_name)
+        .map_err(to_badreq)?;
+    let txstatus = wallet.read().get_tx_status(txhash).ok_or_else(notfound)?;
+    Ok(Body::from_json(&txstatus)?)
 }
 
 async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {

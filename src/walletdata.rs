@@ -165,4 +165,49 @@ impl WalletData {
             self.tx_confirmed.insert(txhash, (tx, height));
         }
     }
+
+    /// Gets status of a transaction
+    pub fn get_tx_status(&self, txhash: HashVal) -> Option<TransactionStatus> {
+        let (confirmed_height, raw) = if let Some((tx, height)) = self.tx_confirmed.get(&txhash) {
+            (Some(*height), tx.clone())
+        } else if let Some(tx) = self.tx_in_progress.get(&txhash) {
+            (None, tx.clone())
+        } else {
+            return None;
+        };
+        let outputs = raw
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(i, cd)| {
+                let coin_id = raw.get_coinid(i as u8).to_string();
+                let is_change = cd.covhash == self.my_covenant.hash();
+                let coin_data = cd.clone();
+                AnnCoinID {
+                    coin_data,
+                    is_change,
+                    coin_id,
+                }
+            })
+            .collect();
+        Some(TransactionStatus {
+            raw,
+            confirmed_height,
+            outputs,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TransactionStatus {
+    pub raw: Transaction,
+    pub confirmed_height: Option<u64>,
+    pub outputs: Vec<AnnCoinID>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AnnCoinID {
+    pub coin_data: CoinData,
+    pub is_change: bool,
+    pub coin_id: String,
 }

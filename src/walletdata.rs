@@ -144,12 +144,19 @@ impl WalletData {
     pub fn commit_sent(&mut self, txn: Transaction) -> anyhow::Result<()> {
         // we clone self to guarantee error-safety
         let mut oself = self.clone();
+        if !txn.is_well_formed() {
+            anyhow::bail!("not well-formed")
+        }
+        let scripts = txn.script_as_map();
         // move coins from spent to unspent
         for input in txn.inputs.iter().cloned() {
             let coindata = oself
                 .unspent_coins
                 .remove(&input)
                 .ok_or_else(|| anyhow::anyhow!("no such coin in data"))?;
+            if scripts.get(&coindata.coin_data.covhash).is_none() {
+                anyhow::bail!("did not supply covhash")
+            }
             oself.spent_coins.insert(input, coindata);
         }
         // put tx in progress

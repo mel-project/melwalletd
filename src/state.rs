@@ -31,8 +31,8 @@ impl AppState {
                 .unwrap(),
         );
         testnet_client.trust(
-            2550,
-            "2b2133e34779c4043278a5d084671a7a801022605dba2721e2d164d9c1096c13"
+            65470,
+            "020f537d006432aea147e71553cd0e23b26ae1cd9ee26b83fbd3eec499c88cad"
                 .parse()
                 .unwrap(),
         );
@@ -178,7 +178,7 @@ async fn confirm_one(wallet: AcidJson<WalletData>, client: ValClient) -> anyhow:
             .map(|v| v.0);
         for change_idx in change_indexes {
             let coin_id = random_tx.get_coinid(change_idx as u8);
-            log::debug!("confirm_one looking at {}", coin_id);
+            log::trace!("confirm_one looking at {}", coin_id);
             let cdh = snapshot
                 .get_coin(random_tx.get_coinid(change_idx as u8))
                 .await

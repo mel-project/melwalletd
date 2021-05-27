@@ -83,7 +83,7 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         testnet: bool,
     }
     let query: Query = req.body_json().await?;
-    let wallet_name = req.param("name").map(|v| v.to_string()).unwrap();
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
     Body::from_json(&hex::encode(
         &req.state()
             .create_wallet(
@@ -100,7 +100,7 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 }
 
 async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    let wallet_name = req.param("name").map(|v| v.to_string()).unwrap();
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
     Body::from_json(&req.state().dump_wallet(&wallet_name).ok_or_else(notfound)?)
 }
 

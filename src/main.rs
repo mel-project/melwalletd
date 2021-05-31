@@ -11,10 +11,10 @@ use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
-use themelio_stf::{CoinData, CoinID, Denom, NetID, Transaction, TxKind, MICRO_CONVERTER};
+use themelio_stf::{CoinData, CoinID, Denom, NetID, Transaction, TxHash, TxKind, MICRO_CONVERTER};
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
-use tmelcrypt::{Ed25519SK, HashVal};
+use tmelcrypt::Ed25519SK;
 
 #[derive(StructOpt)]
 struct Args {
@@ -130,7 +130,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         outputs: Vec<CoinData>,
         signing_key: String,
         kind: Option<TxKind>,
-        data: Option<Vec<u8>>,
+        data: Option<String>,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
@@ -146,7 +146,10 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let snapshot = client.snapshot().await.map_err(to_badgateway)?;
     let fee_multiplier = snapshot.current_header().fee_multiplier;
     let kind = request.kind;
-    let data = request.data.clone();
+    let data = match request.data.as_ref() {
+        Some(v) => Some(hex::decode(v).map_err(to_badreq)?),
+        None => None,
+    };
     let prepared_tx = smol::unblock(move || {
         wallet
             .read()
@@ -184,7 +187,7 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
+    let txhash: TxHash = TxHash(req.param("txhash")?.parse().map_err(to_badreq)?);
     let wallet = req
         .state()
         .multi()

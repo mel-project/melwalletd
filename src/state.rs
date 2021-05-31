@@ -1,6 +1,7 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     net::SocketAddr,
+    sync::Arc,
     time::Duration,
 };
 
@@ -8,9 +9,13 @@ use crate::{acidjson::AcidJson, multi::MultiWallet, walletdata::WalletData};
 use anyhow::Context;
 use nanorand::RNG;
 use nodeprot::ValClient;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use themelio_stf::{melvm::Covenant, CoinDataHeight, CoinID, Denom, NetID, Transaction};
-use tmelcrypt::{Ed25519SK, HashVal};
+use themelio_stf::{
+    melvm::{CovHash, Covenant},
+    CoinDataHeight, CoinID, Denom, NetID, Transaction, TxHash,
+};
+use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
 pub struct AppState {
@@ -70,7 +75,7 @@ impl AppState {
                     WalletSummary {
                         total_micromel,
                         network: wd.network(),
-                        address: wd.my_covenant().hash().to_addr(),
+                        address: wd.my_covenant().hash(),
                     },
                 )
             })
@@ -110,7 +115,8 @@ impl AppState {
 pub struct WalletSummary {
     pub total_micromel: u128,
     pub network: NetID,
-    pub address: String,
+    #[serde(with = "stdcode::asstr")]
+    pub address: CovHash,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -122,6 +128,7 @@ pub struct WalletDump {
 // task that periodically pulls random coins to try to confirm
 async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
     let mut pacer = smol::Timer::interval(Duration::from_secs(1));
+    let sent = Arc::new(Mutex::new(HashSet::new()));
     loop {
         (&mut pacer).await;
         let possible_wallets = multi.list().collect::<Vec<_>>();
@@ -138,8 +145,9 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
             }
             Ok(wallet) => {
                 let client = clients[&wallet.read().network()].clone();
+                let sent = sent.clone();
                 smolscale::spawn(async move {
-                    if let Err(err) = confirm_one(wallet, client).await {
+                    if let Err(err) = confirm_one(wallet, client, sent).await {
                         log::warn!("error in confirm_one: {:?}", err)
                     }
                 })
@@ -149,8 +157,12 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
     }
 }
 
-async fn confirm_one(wallet: AcidJson<WalletData>, client: ValClient) -> anyhow::Result<()> {
-    let in_progress: BTreeMap<HashVal, Transaction> = wallet.read().tx_in_progress().clone();
+async fn confirm_one(
+    wallet: AcidJson<WalletData>,
+    client: ValClient,
+    sent: Arc<Mutex<HashSet<TxHash>>>,
+) -> anyhow::Result<()> {
+    let in_progress: BTreeMap<TxHash, Transaction> = wallet.read().tx_in_progress().clone();
     // we pick a random value that's in progress
     let in_progress: Vec<Transaction> = in_progress.values().cloned().collect();
     if in_progress.is_empty() {
@@ -158,7 +170,9 @@ async fn confirm_one(wallet: AcidJson<WalletData>, client: ValClient) -> anyhow:
     }
     let snapshot = client.snapshot().await.context("cannot snapshot")?;
     let random_tx = &in_progress[nanorand::tls_rng().generate_range(0, in_progress.len())];
-    if nanorand::tls_rng().generate_range(0u8, 10) == 0 {
+    if nanorand::tls_rng().generate_range(0u8, 10) == 0
+        || sent.lock().insert(random_tx.hash_nosigs())
+    {
         if let Err(err) = snapshot.get_raw().send_tx(random_tx.clone()).await {
             log::debug!(
                 "retransmission of {} saw error: {:?}",
@@ -186,6 +200,7 @@ async fn confirm_one(wallet: AcidJson<WalletData>, client: ValClient) -> anyhow:
             if let Some(cdh) = cdh {
                 log::debug!("confirmed {} at height {}", coin_id, cdh.height);
                 wallet.write().insert_coin(coin_id, cdh);
+                sent.lock().remove(&random_tx.hash_nosigs());
             } else {
                 log::debug!("{} not confirmed yet", coin_id);
                 break;

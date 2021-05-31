@@ -5,13 +5,13 @@ mod walletdata;
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
-use blkstructs::{CoinData, CoinID, Denom, NetID, Transaction, TxKind, MICRO_CONVERTER};
 use multi::MultiWallet;
 use nanorand::RNG;
 use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
+use themelio_stf::{CoinData, CoinID, Denom, NetID, Transaction, TxKind, MICRO_CONVERTER};
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
 use tmelcrypt::{Ed25519SK, HashVal};

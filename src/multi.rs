@@ -1,8 +1,8 @@
 use anyhow::Context;
-use blkstructs::{melvm::Covenant, NetID};
 use dashmap::DashMap;
 use std::path::{Path, PathBuf};
 use std::{io::prelude::*, sync::Arc};
+use themelio_stf::{melvm::Covenant, NetID};
 
 use crate::{acidjson::AcidJson, walletdata::WalletData};
 

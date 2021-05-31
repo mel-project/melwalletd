@@ -6,10 +6,10 @@ use std::{
 
 use crate::{acidjson::AcidJson, multi::MultiWallet, walletdata::WalletData};
 use anyhow::Context;
-use blkstructs::{melvm::Covenant, CoinDataHeight, CoinID, Denom, NetID, Transaction};
 use nanorand::RNG;
 use nodeprot::ValClient;
 use serde::{Deserialize, Serialize};
+use themelio_stf::{melvm::Covenant, CoinDataHeight, CoinID, Denom, NetID, Transaction};
 use tmelcrypt::{Ed25519SK, HashVal};
 
 /// Encapsulates all the state and logic needed for the wallet daemon.

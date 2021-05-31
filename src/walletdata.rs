@@ -2,12 +2,12 @@ use std::collections::BTreeMap;
 
 use anyhow::Context;
 use binary_search::Direction;
-use blkstructs::{
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
+use themelio_stf::{
     melvm::Covenant, CoinData, CoinDataHeight, CoinID, Denom, NetID, Transaction, TxKind,
     MAX_COINVAL,
 };
-use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
 use tmelcrypt::HashVal;
 
 /// Immutable & cloneable in-memory data that can be persisted.

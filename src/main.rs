@@ -55,6 +55,7 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
         app.at("/wallets/:name/send-faucet").post(send_faucet);
+        app.at("/wallets/:name/transactions").get(list_txs);
         app.at("/wallets/:name/transactions/:txhash").get(get_tx);
         app.listen(args.listen).await?;
         Ok(())
@@ -65,13 +66,24 @@ async fn list_wallets(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     Body::from_json(&smol::unblock(move || req.state().list_wallets()).await)
 }
 
+async fn list_txs(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let wallet = req
+        .state()
+        .multi()
+        .get_wallet(&wallet_name)
+        .map_err(to_badreq)?;
+
+    Body::from_json(&smol::unblock(move || wallet.read().get_txs()).await)
+}
+
 async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     #[derive(Deserialize)]
     struct Query {
         testnet: bool,
     }
     let query: Query = req.body_json().await?;
-    let wallet_name = req.param("name").map(|v| v.to_string()).unwrap();
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
     Body::from_json(&hex::encode(
         &req.state()
             .create_wallet(
@@ -88,7 +100,7 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 }
 
 async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    let wallet_name = req.param("name").map(|v| v.to_string()).unwrap();
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
     Body::from_json(&req.state().dump_wallet(&wallet_name).ok_or_else(notfound)?)
 }
 

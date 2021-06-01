@@ -25,12 +25,9 @@ pub struct WalletData {
 }
 
 /// A view into all transactions of a [WalletData]
-#[serde_as]
 #[derive(Serialize)]
 pub struct WalletTxs {
-    #[serde_as(as = "Vec<(_, _)>")]
     tx_in_progress: BTreeMap<TxHash, Transaction>,
-    #[serde_as(as = "Vec<(_, _)>")]
     tx_confirmed: BTreeMap<TxHash, (Transaction, u64)>,
 }
 

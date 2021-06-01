@@ -17,7 +17,7 @@ anyhow= "1.0.40"
 im={ version = "15.0.0", features = ["serde"] }
 atomicwrites= "0.3.0"
 parking_lot= "0.11.1"
-serde_json= {version="1.0.64", features=["arbitrary_precision"]}
+serde_json= { version = "1.0.64", features = ["arbitrary_precision"] }
 dashmap= "4.0.2"
 structopt= "0.3.21"
 stdcode= "0.1.2"

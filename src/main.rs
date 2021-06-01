@@ -11,6 +11,7 @@ use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
+use http_types::headers::HeaderValue;
 use themelio_stf::{CoinData, CoinID, Denom, NetID, Transaction, TxHash, TxKind, MICRO_CONVERTER};
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
@@ -47,7 +48,8 @@ fn main() -> anyhow::Result<()> {
         let state = AppState::new(multiwallet, args.mainnet_connect, args.testnet_connect);
 
         let mut app = tide::with_state(Arc::new(state));
-        app.with(CorsMiddleware::new());
+        app.with(CorsMiddleware::new()
+            .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap()));
         app.at("/wallets").get(list_wallets);
         app.at("/wallets/:name").get(dump_wallet);
         app.at("/wallets/:name").put(create_wallet);

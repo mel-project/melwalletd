@@ -1489,6 +1489,7 @@ dependencies = [
  "binary-search",
  "dashmap",
  "hex",
+ "http-types",
  "im",
  "log",
  "nanorand",

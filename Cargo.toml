@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 themelio-stf= "0.2.1"
 nodeprot = { git = "https://github.com/themeliolabs/themelio-core" }
+http-types="2.11"
 tmelcrypt = "0.1.0"
 smolscale= "0.2.3"
 serde={ version = "1.0.126", features = ["derive"] }

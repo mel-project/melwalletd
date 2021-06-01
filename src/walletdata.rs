@@ -2,13 +2,12 @@ use std::collections::BTreeMap;
 
 use anyhow::Context;
 use binary_search::Direction;
-use blkstructs::{
-    melvm::Covenant, CoinData, CoinDataHeight, CoinID, Denom, NetID, Transaction, TxKind,
-    MAX_COINVAL,
-};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use tmelcrypt::HashVal;
+use themelio_stf::{
+    melvm::Covenant, CoinData, CoinDataHeight, CoinID, Denom, NetID, Transaction, TxHash, TxKind,
+    MAX_COINVAL,
+};
 
 /// Immutable & cloneable in-memory data that can be persisted.
 /// Does not store secrets!
@@ -19,8 +18,8 @@ pub struct WalletData {
     unspent_coins: BTreeMap<CoinID, CoinDataHeight>,
     #[serde_as(as = "Vec<(_, _)>")]
     spent_coins: BTreeMap<CoinID, CoinDataHeight>,
-    tx_in_progress: BTreeMap<HashVal, Transaction>,
-    tx_confirmed: BTreeMap<HashVal, (Transaction, u64)>,
+    tx_in_progress: BTreeMap<TxHash, Transaction>,
+    tx_confirmed: BTreeMap<TxHash, (Transaction, u64)>,
     my_covenant: Covenant,
     network: NetID,
 }
@@ -30,9 +29,9 @@ pub struct WalletData {
 #[derive(Serialize)]
 pub struct WalletTxs {
     #[serde_as(as = "Vec<(_, _)>")]
-    tx_in_progress: BTreeMap<HashVal, Transaction>,
+    tx_in_progress: BTreeMap<TxHash, Transaction>,
     #[serde_as(as = "Vec<(_, _)>")]
-    tx_confirmed: BTreeMap<HashVal, (Transaction, u64)>,
+    tx_confirmed: BTreeMap<TxHash, (Transaction, u64)>,
 }
 
 impl WalletData {
@@ -69,7 +68,7 @@ impl WalletData {
     }
 
     /// In-progress transactions
-    pub fn tx_in_progress(&self) -> &BTreeMap<HashVal, Transaction> {
+    pub fn tx_in_progress(&self) -> &BTreeMap<TxHash, Transaction> {
         &self.tx_in_progress
     }
 
@@ -177,14 +176,14 @@ impl WalletData {
     }
 
     /// Informs the state of a confirmed transaction, based on its txhash. This will move the transaction from the in-progress to confirmed.
-    pub fn commit_confirmed(&mut self, txhash: HashVal, height: u64) {
+    pub fn commit_confirmed(&mut self, txhash: TxHash, height: u64) {
         if let Some(tx) = self.tx_in_progress.remove(&txhash) {
             self.tx_confirmed.insert(txhash, (tx, height));
         }
     }
 
     /// Gets status of a transaction
-    pub fn get_tx_status(&self, txhash: HashVal) -> Option<TransactionStatus> {
+    pub fn get_tx_status(&self, txhash: TxHash) -> Option<TransactionStatus> {
         let (confirmed_height, raw) = if let Some((tx, height)) = self.tx_confirmed.get(&txhash) {
             (Some(*height), tx.clone())
         } else if let Some(tx) = self.tx_in_progress.get(&txhash) {

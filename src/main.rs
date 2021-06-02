@@ -2,16 +2,16 @@ mod acidjson;
 mod multi;
 mod state;
 mod walletdata;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
+use http_types::headers::HeaderValue;
 use multi::MultiWallet;
 use nanorand::RNG;
 use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
-use http_types::headers::HeaderValue;
 use themelio_stf::{CoinData, CoinID, Denom, NetID, Transaction, TxHash, TxKind, MICRO_CONVERTER};
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
@@ -48,8 +48,10 @@ fn main() -> anyhow::Result<()> {
         let state = AppState::new(multiwallet, args.mainnet_connect, args.testnet_connect);
 
         let mut app = tide::with_state(Arc::new(state));
-        app.with(CorsMiddleware::new()
-            .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap()));
+        app.with(
+            CorsMiddleware::new()
+                .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap()),
+        );
         app.at("/wallets").get(list_wallets);
         app.at("/wallets/:name").get(dump_wallet);
         app.at("/wallets/:name").put(create_wallet);
@@ -103,7 +105,17 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    Body::from_json(&req.state().dump_wallet(&wallet_name).ok_or_else(notfound)?)
+    let query: BTreeMap<String, String> = req.query()?;
+    if query.contains_key("summary") {
+        Body::from_json(
+            &req.state()
+                .dump_wallet(&wallet_name)
+                .ok_or_else(notfound)?
+                .summary,
+        )
+    } else {
+        Body::from_json(&req.state().dump_wallet(&wallet_name).ok_or_else(notfound)?)
+    }
 }
 
 async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {

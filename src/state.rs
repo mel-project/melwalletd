@@ -70,10 +70,18 @@ impl AppState {
                     .filter(|(_, cdh)| cdh.coin_data.denom == Denom::Mel)
                     .map(|(_, cdh)| cdh.coin_data.value)
                     .sum();
+                let mut detailed_balance = BTreeMap::new();
+                for (_, cdh) in unspent.iter() {
+                    let entry = detailed_balance
+                        .entry(hex::encode(&cdh.coin_data.denom.to_bytes()))
+                        .or_default();
+                    *entry += cdh.coin_data.value;
+                }
                 (
                     name,
                     WalletSummary {
                         total_micromel,
+                        detailed_balance,
                         network: wd.network(),
                         address: wd.my_covenant().hash(),
                     },
@@ -114,6 +122,7 @@ impl AppState {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletSummary {
     pub total_micromel: u128,
+    pub detailed_balance: BTreeMap<String, u128>,
     pub network: NetID,
     #[serde(with = "stdcode::asstr")]
     pub address: CovHash,

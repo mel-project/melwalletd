@@ -1072,9 +1072,9 @@ checksum = "acc499defb3b348f8d8f3f66415835a9131856ff7714bf10dadfc4ec4bdb29a1"
 
 [[package]]
 name = "futures-lite"
-version = "1.11.3"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4481d0cd0de1d204a4fa55e7d45f07b1d958abcb06714b3446438e2eff695fb"
+checksum = "7694489acd39452c77daa48516b894c153f192c3578d5a839b62c58099fcbf48"
 dependencies = [
  "fastrand",
  "futures-core",
@@ -1230,9 +1230,9 @@ checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
 
 [[package]]
 name = "heck"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87cbf45460356b7deeb5e3415b5563308c0a9b057c85e12b06ad551f98d0a6ac"
+checksum = "6d621efb26863f0e9924c6ac577e8275e5e6b77455db64ffa6c65c904e9e132c"
 dependencies = [
  "unicode-segmentation",
 ]
@@ -1460,7 +1460,7 @@ checksum = "7ffc5c5338469d4d3ea17d269fa8ea3512ad247247c30bd2df69e68309ed0a08"
 [[package]]
 name = "melnet"
 version = "0.1.0"
-source = "git+https://github.com/themeliolabs/themelio-core#f1bb12731861a41029ec0d826f4a5f0100ae22e1"
+source = "git+https://github.com/themeliolabs/themelio-core#86057013f67e91cd9b093d0278e1dcf249b7179d"
 dependencies = [
  "anyhow",
  "async-net",
@@ -1561,7 +1561,7 @@ dependencies = [
 [[package]]
 name = "nodeprot"
 version = "0.1.0"
-source = "git+https://github.com/themeliolabs/themelio-core#f1bb12731861a41029ec0d826f4a5f0100ae22e1"
+source = "git+https://github.com/themeliolabs/themelio-core#86057013f67e91cd9b093d0278e1dcf249b7179d"
 dependencies = [
  "cached",
  "futures-util",
@@ -2837,9 +2837,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-normalization"
-version = "0.1.18"
+version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33717dca7ac877f497014e10d73f3acf948c342bee31b5ca7892faf94ccc6b49"
+checksum = "d54590932941a9e9266f0832deed84ebe1bf2e4c9e4a3554d393d18f5e854bf9"
 dependencies = [
  "tinyvec",
 ]

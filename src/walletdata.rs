@@ -24,13 +24,6 @@ pub struct WalletData {
     network: NetID,
 }
 
-/// A view into all transactions of a [WalletData]
-#[derive(Serialize)]
-pub struct WalletTxs {
-    tx_in_progress: BTreeMap<TxHash, Transaction>,
-    tx_confirmed: BTreeMap<TxHash, (Transaction, u64)>,
-}
-
 impl WalletData {
     /// Create a new data.
     pub fn new(my_covenant: Covenant, network: NetID) -> Self {
@@ -209,19 +202,6 @@ impl WalletData {
             outputs,
         })
     }
-
-    /// Gets all confirmed transactions in the wallet
-    pub fn get_txs(&self) -> WalletTxs {
-        WalletTxs {
-            tx_in_progress: self.tx_in_progress.clone(),
-            tx_confirmed: self.tx_confirmed.clone(),
-        }
-    }
-    /*
-    pub fn get_confirmed_txs(&self) -> impl Iterator<Item=(&HashVal, &(Transaction, u64))> {
-        self.tx_confirmed.iter()
-    }
-    */
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

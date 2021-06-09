@@ -25,8 +25,9 @@
             cargo = rustChannel.rust;
           };
 
-    in flake-utils.lib.eachSystem
-      ["x86_64-linux"]
+    #in flake-utils.lib.eachSystem
+    #  ["x86_64-linux"]
+    in flake-utils.lib.eachDefaultSystem
       (system: let
 
         pkgs = import nixpkgs {
@@ -41,13 +42,14 @@
 
         in rec {
           packages.melwalletd = naersk-lib.buildPackage rec {
-            name = "melwalletd-v${version}";
-            version = "0.1.0-alpha";
-
-            src = ".";
+            name = "melwalletd";
+            #name = "melwalletd-v${version}";
+            #version = "0.1.0-alpha";
+            copyBins = true;
+            root = ./.;
           };
 
-          packages.default = packages.melwalletd;
+          defaultPackage = packages.melwalletd;
 
           devShell = pkgs.mkShell {
             buildInputs = with pkgs; [

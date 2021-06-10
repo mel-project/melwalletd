@@ -1,21 +1,5 @@
 {
   "nodes": {
-    "cargo2nix": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1617941001,
-        "narHash": "sha256-g1dDgZqC76JU1yJ5fbjhj3LVbTACgnf6amPuFYqFCbY=",
-        "owner": "cargo2nix",
-        "repo": "cargo2nix",
-        "rev": "14da69bbe13c61f809fe9e0d979cdd8bf6563fcf",
-        "type": "github"
-      },
-      "original": {
-        "owner": "cargo2nix",
-        "repo": "cargo2nix",
-        "type": "github"
-      }
-    },
     "flake-utils": {
       "locked": {
         "lastModified": 1622445595,
@@ -47,39 +31,7 @@
         "type": "github"
       }
     },
-    "naersk": {
-      "inputs": {
-        "nixpkgs": "nixpkgs"
-      },
-      "locked": {
-        "lastModified": 1622810282,
-        "narHash": "sha256-4wmvM3/xfD0hCdNDIXVzRMfL4yB1J+DjH6Zte2xbAxk=",
-        "owner": "nmattia",
-        "repo": "naersk",
-        "rev": "e8061169e1495871b56be97c5c51d310fae01374",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nmattia",
-        "repo": "naersk",
-        "type": "github"
-      }
-    },
     "nixpkgs": {
-      "locked": {
-        "lastModified": 1623271678,
-        "narHash": "sha256-eeKIlvckNCOQc2Lkjzph3cGJNuTe6+CBytLS0F54nbY=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "d7d0a67765b7aac64806200fdd1a647649e6990a",
-        "type": "github"
-      },
-      "original": {
-        "id": "nixpkgs",
-        "type": "indirect"
-      }
-    },
-    "nixpkgs_2": {
       "locked": {
         "lastModified": 1623225763,
         "narHash": "sha256-Mo0szTSr3rST1FHqCnrZw7UKNK26NmB9uyI7783LAE8=",
@@ -97,11 +49,9 @@
     },
     "root": {
       "inputs": {
-        "cargo2nix": "cargo2nix",
         "flake-utils": "flake-utils",
         "mozilla": "mozilla",
-        "naersk": "naersk",
-        "nixpkgs": "nixpkgs_2",
+        "nixpkgs": "nixpkgs",
         "selfDir": "selfDir"
       }
     },

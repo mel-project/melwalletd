@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "cargo2nix": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1617941001,
+        "narHash": "sha256-g1dDgZqC76JU1yJ5fbjhj3LVbTACgnf6amPuFYqFCbY=",
+        "owner": "cargo2nix",
+        "repo": "cargo2nix",
+        "rev": "14da69bbe13c61f809fe9e0d979cdd8bf6563fcf",
+        "type": "github"
+      },
+      "original": {
+        "owner": "cargo2nix",
+        "repo": "cargo2nix",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "locked": {
         "lastModified": 1622445595,
@@ -81,10 +97,24 @@
     },
     "root": {
       "inputs": {
+        "cargo2nix": "cargo2nix",
         "flake-utils": "flake-utils",
         "mozilla": "mozilla",
         "naersk": "naersk",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_2",
+        "selfDir": "selfDir"
+      }
+    },
+    "selfDir": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-JxMlnso5JbExqnIxkztpyI3jJ5oH1Miq9N3+FVE+Xf0=",
+        "path": ".",
+        "type": "path"
+      },
+      "original": {
+        "path": ".",
+        "type": "path"
       }
     }
   },

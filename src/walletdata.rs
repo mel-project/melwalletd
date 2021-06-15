@@ -193,7 +193,7 @@ impl WalletData {
             .iter()
             .enumerate()
             .map(|(i, cd)| {
-                let coin_id = raw.get_coinid(i as u8).to_string();
+                let coin_id = raw.output_coinid(i as u8).to_string();
                 let is_change = cd.covhash == self.my_covenant.hash();
                 let coin_data = cd.clone();
                 AnnCoinID {

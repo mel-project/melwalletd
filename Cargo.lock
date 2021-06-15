@@ -1460,7 +1460,8 @@ checksum = "7ffc5c5338469d4d3ea17d269fa8ea3512ad247247c30bd2df69e68309ed0a08"
 [[package]]
 name = "melnet"
 version = "0.1.0"
-source = "git+https://github.com/themeliolabs/themelio-core#86057013f67e91cd9b093d0278e1dcf249b7179d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcdf22aab930e44d7497921ef9a0d559631eb28bf5ed0743bcd49654d1796e2a"
 dependencies = [
  "anyhow",
  "async-net",
@@ -1493,7 +1494,6 @@ dependencies = [
  "im",
  "log",
  "nanorand",
- "nodeprot",
  "parking_lot",
  "serde",
  "serde_json",
@@ -1502,6 +1502,7 @@ dependencies = [
  "smolscale",
  "stdcode",
  "structopt",
+ "themelio-nodeprot",
  "themelio-stf",
  "tide",
  "tmelcrypt",
@@ -1556,24 +1557,6 @@ dependencies = [
  "cc",
  "cfg-if 1.0.0",
  "libc",
-]
-
-[[package]]
-name = "nodeprot"
-version = "0.1.0"
-source = "git+https://github.com/themeliolabs/themelio-core#86057013f67e91cd9b093d0278e1dcf249b7179d"
-dependencies = [
- "cached",
- "futures-util",
- "hex",
- "log",
- "melnet",
- "novasmt",
- "serde",
- "smol",
- "stdcode",
- "themelio-stf",
- "tmelcrypt",
 ]
 
 [[package]]
@@ -2573,10 +2556,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "themelio-stf"
-version = "0.2.1"
+name = "themelio-nodeprot"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a0b01d07675a772a0ab32e0d9161f348fd2dbf12f33f8441e8cabc71e3ff556"
+checksum = "98bcaa771ed6bbf73d7ca815a7f1ac2c61ccdaf9b20a01693e1cbc9c523f0a30"
+dependencies = [
+ "cached",
+ "futures-util",
+ "hex",
+ "log",
+ "melnet",
+ "novasmt",
+ "serde",
+ "smol",
+ "stdcode",
+ "themelio-stf",
+ "tmelcrypt",
+]
+
+[[package]]
+name = "themelio-stf"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "646aa4618d90a242850c3dbdb738af085e12dcd7e4bf7e1528b5f89096087f36"
 dependencies = [
  "arbitrary",
  "cached",

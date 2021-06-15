@@ -8,11 +8,11 @@ use std::{
 use crate::{acidjson::AcidJson, multi::MultiWallet, walletdata::WalletData};
 use anyhow::Context;
 use nanorand::RNG;
-use nodeprot::ValClient;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use themelio_nodeprot::ValClient;
 use themelio_stf::{
-    melvm::{CovHash, Covenant},
+    melvm::{Address, Covenant},
     CoinDataHeight, CoinID, Denom, NetID, Transaction, TxHash,
 };
 use tmelcrypt::Ed25519SK;
@@ -125,7 +125,7 @@ pub struct WalletSummary {
     pub detailed_balance: BTreeMap<String, u128>,
     pub network: NetID,
     #[serde(with = "stdcode::asstr")]
-    pub address: CovHash,
+    pub address: Address,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -200,10 +200,10 @@ async fn confirm_one(
             .filter(|v| v.1.covhash == my_covhash)
             .map(|v| v.0);
         for change_idx in change_indexes {
-            let coin_id = random_tx.get_coinid(change_idx as u8);
+            let coin_id = random_tx.output_coinid(change_idx as u8);
             log::trace!("confirm_one looking at {}", coin_id);
             let cdh = snapshot
-                .get_coin(random_tx.get_coinid(change_idx as u8))
+                .get_coin(random_tx.output_coinid(change_idx as u8))
                 .await
                 .context("cannot get coin")?;
             if let Some(cdh) = cdh {

@@ -103,22 +103,24 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     #[derive(Deserialize)]
     struct Query {
         testnet: bool,
+        password: Option<String>,
     }
     let query: Query = req.body_json().await?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    Body::from_json(&hex::encode(
-        &req.state()
-            .create_wallet(
-                &wallet_name,
-                if query.testnet {
-                    NetID::Testnet
-                } else {
-                    NetID::Mainnet
-                },
-            )
-            .context("cannot create wallet")?
-            .0,
-    ))
+    let (_, sk) = tmelcrypt::ed25519_keygen();
+    req.state()
+        .create_wallet(
+            &wallet_name,
+            if query.testnet {
+                NetID::Testnet
+            } else {
+                NetID::Mainnet
+            },
+            sk,
+            query.password,
+        )
+        .context("cannot create wallet")?;
+    Ok("".into())
 }
 
 async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -159,13 +161,13 @@ async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 async fn unlock_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     #[derive(Deserialize)]
     struct Req {
-        pwd: Option<String>,
+        password: Option<String>,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
     // attempt to unlock
     req.state()
-        .unlock_signer(&wallet_name, request.pwd)
+        .unlock_signer(&wallet_name, request.password)
         .context("incorrect password")
         .map_err(to_forbidden)?;
     Ok("".into())

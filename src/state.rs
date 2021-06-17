@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     multi::MultiWallet,
-    secrets::{PersistentSecret, SecretStore},
+    secrets::{EncryptedSK, PersistentSecret, SecretStore},
     signer::Signer,
     walletdata::WalletData,
 };
@@ -136,14 +136,26 @@ impl AppState {
     }
 
     /// Creates a wallet with a given name. If the wallet was successfully created, return its secret key.
-    pub fn create_wallet(&self, name: &str, network: NetID) -> Option<Ed25519SK> {
+    pub fn create_wallet(
+        &self,
+        name: &str,
+        network: NetID,
+        key: Ed25519SK,
+        pwd: Option<String>,
+    ) -> Option<()> {
         if self.list_wallets().contains_key(name) {
             return None;
         }
-        let (pk, sk) = tmelcrypt::ed25519_keygen();
-        let covenant = Covenant::std_ed25519_pk_new(pk);
+        let covenant = Covenant::std_ed25519_pk_new(key.to_public());
         self.multi.create_wallet(name, covenant, network).ok()?;
-        Some(sk)
+        self.secrets.store(
+            name.to_owned(),
+            match pwd {
+                Some(pwd) => PersistentSecret::PasswordEncrypted(EncryptedSK::new(key, &pwd)),
+                None => PersistentSecret::Plaintext(key),
+            },
+        );
+        Some(())
     }
 
     /// Gets a reference to the inner stuff.

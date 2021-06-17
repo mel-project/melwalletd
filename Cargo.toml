@@ -30,3 +30,14 @@ binary-search= "0.1.2"
 hex= "0.4.3"
 serde_with= "1.9.1"
 nanorand= "0.5.2"
+secrecy="0.7"
+acidjson="0.1"
+rust-argon2="0.8"
+getrandom="0.2"
+crypto_api_chachapoly="0.4.3"
+crypto_api="0.2.2"
+libc="0.2.97"
+
+# prevent key derivation from being ridiculously slow
+[profile.dev.package.rust-argon2]
+opt-level = 3

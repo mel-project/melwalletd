@@ -5,8 +5,15 @@ use std::{
     time::Duration,
 };
 
-use crate::{acidjson::AcidJson, multi::MultiWallet, walletdata::WalletData};
+use crate::{
+    multi::MultiWallet,
+    secrets::{PersistentSecret, SecretStore},
+    signer::Signer,
+    walletdata::WalletData,
+};
+use acidjson::AcidJson;
 use anyhow::Context;
+use dashmap::DashMap;
 use nanorand::RNG;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -21,12 +28,19 @@ use tmelcrypt::Ed25519SK;
 pub struct AppState {
     multi: MultiWallet,
     clients: HashMap<NetID, ValClient>,
+    unlocked_signers: DashMap<String, Arc<dyn Signer>>,
+    secrets: SecretStore,
     _confirm_task: smol::Task<()>,
 }
 
 impl AppState {
     /// Creates a new appstate, given a mainnet and testnet server.
-    pub fn new(multi: MultiWallet, mainnet_addr: SocketAddr, testnet_addr: SocketAddr) -> Self {
+    pub fn new(
+        multi: MultiWallet,
+        secrets: SecretStore,
+        mainnet_addr: SocketAddr,
+        testnet_addr: SocketAddr,
+    ) -> Self {
         let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
         let testnet_client = ValClient::new(NetID::Testnet, testnet_addr);
         mainnet_client.trust(
@@ -53,6 +67,8 @@ impl AppState {
         Self {
             multi,
             clients,
+            unlocked_signers: Default::default(),
+            secrets,
             _confirm_task,
         }
     }
@@ -88,6 +104,28 @@ impl AppState {
                 )
             })
             .collect()
+    }
+
+    /// Obtains the signer of a wallet. If the wallet is still locked, returns None.
+    pub fn get_signer(&self, name: &str) -> Option<Arc<dyn Signer>> {
+        let res = self.unlocked_signers.get(name)?;
+        Some(res.clone())
+    }
+
+    /// Unlocks a particular wallet. Returns None if unlocking failed.
+    pub fn unlock_signer(&self, name: &str, pwd: Option<String>) -> Option<()> {
+        let enc = self.secrets.load(name)?;
+        match enc {
+            PersistentSecret::Plaintext(sec) => {
+                self.unlocked_signers.insert(name.to_owned(), Arc::new(sec));
+            }
+            PersistentSecret::PasswordEncrypted(enc) => {
+                let decrypted = enc.decrypt(&pwd?)?;
+                self.unlocked_signers
+                    .insert(name.to_owned(), Arc::new(decrypted));
+            }
+        }
+        Some(())
     }
 
     /// Dumps the state of a particular wallet.

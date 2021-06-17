@@ -1,8 +1,9 @@
-mod acidjson;
 mod multi;
+mod secrets;
+mod signer;
 mod state;
 mod walletdata;
-use std::{collections::BTreeMap, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use http_types::headers::HeaderValue;
@@ -16,6 +17,8 @@ use themelio_stf::{CoinData, CoinID, Denom, NetID, Transaction, TxHash, TxKind, 
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
 use tmelcrypt::Ed25519SK;
+
+use crate::{secrets::SecretStore, signer::Signer};
 
 #[derive(StructOpt)]
 struct Args {
@@ -39,22 +42,49 @@ fn main() -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
         let args = Args::from_args();
         std::fs::create_dir_all(&args.wallet_dir).context("cannot create wallet_dir")?;
+        // SAFETY: this is perfectly safe because chmod cannot lead to memory unsafety.
+        unsafe {
+            libc::chmod(
+                CString::new(args.wallet_dir.to_string_lossy().as_bytes().to_vec())?.as_ptr(),
+                0o700,
+            );
+        }
         let multiwallet = MultiWallet::open(&args.wallet_dir)?;
         log::info!(
             "opened wallet directory: {:?}",
             multiwallet.list().collect::<Vec<_>>()
         );
+        let mut secret_path = args.wallet_dir.clone();
+        secret_path.push(".secrets.json");
+        let secrets = SecretStore::open(&secret_path)?;
 
-        let state = AppState::new(multiwallet, args.mainnet_connect, args.testnet_connect);
+        let state = AppState::new(
+            multiwallet,
+            secrets,
+            args.mainnet_connect,
+            args.testnet_connect,
+        );
 
         let mut app = tide::with_state(Arc::new(state));
+        // set CORS
         app.with(
             CorsMiddleware::new()
                 .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap()),
         );
+        app.with(tide::utils::After(|mut res: tide::Response| async move {
+            if let Some(err) = res.error() {
+                // put the error string in the response
+                let err_str = format!("ERROR: {:?}", err);
+                log::warn!("{}", err_str);
+                res.set_body(err_str);
+            }
+            Ok(res)
+        }));
+        // interpret errors
         app.at("/wallets").get(list_wallets);
         app.at("/wallets/:name").get(dump_wallet);
         app.at("/wallets/:name").put(create_wallet);
+        app.at("/wallets/:name/unlock").post(unlock_wallet);
         app.at("/wallets/:name/coins/:coinid").put(add_coin);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
@@ -126,17 +156,39 @@ async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     Ok(Body::from_string("".into()))
 }
 
+async fn unlock_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    #[derive(Deserialize)]
+    struct Req {
+        pwd: Option<String>,
+    }
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let request: Req = req.body_json().await?;
+    // attempt to unlock
+    req.state()
+        .unlock_signer(&wallet_name, request.pwd)
+        .context("incorrect password")
+        .map_err(to_forbidden)?;
+    Ok("".into())
+}
+
 async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     #[derive(Deserialize)]
     struct Req {
         outputs: Vec<CoinData>,
-        signing_key: String,
+        signing_key: Option<String>,
         kind: Option<TxKind>,
         data: Option<String>,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
-    let signing_key: Ed25519SK = request.signing_key.parse()?;
+    let signing_key: Arc<dyn Signer> = if let Some(signing_key) = request.signing_key.as_ref() {
+        Arc::new(signing_key.parse::<Ed25519SK>()?)
+    } else {
+        req.state()
+            .get_signer(&&wallet_name)
+            .context("wallet is locked")
+            .map_err(to_forbidden)?
+    };
     let wallet = req
         .state()
         .multi()
@@ -162,10 +214,10 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
                 if let Some(data) = data.clone() {
                     tx.data = data
                 }
-                for _ in 0..tx.inputs.len() {
-                    tx = tx.signed_ed25519(signing_key);
+                for i in 0..tx.inputs.len() {
+                    tx = signing_key.sign_tx(tx, i)?;
                 }
-                tx
+                Ok(tx)
             })
     })
     .await
@@ -236,6 +288,10 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 fn to_badreq<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -> tide::Error {
     tide::Error::new(StatusCode::BadRequest, e)
+}
+
+fn to_forbidden<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -> tide::Error {
+    tide::Error::new(StatusCode::Forbidden, e)
 }
 
 fn to_notfound<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -> tide::Error {

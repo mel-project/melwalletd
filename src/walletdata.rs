@@ -9,7 +9,7 @@ use themelio_stf::{
     MAX_COINVAL,
 };
 
-/// Immutable & cloneable in-memory data that can be persisted.
+/// Cloneable in-memory data that can be persisted.
 /// Does not store secrets!
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]

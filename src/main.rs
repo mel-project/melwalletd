@@ -35,6 +35,27 @@ struct Args {
     testnet_connect: SocketAddr,
 }
 
+// If "MELWALLETD_AUTH_TOKEN" environment variable is set, check that every HTTP request has X-Melwalletd-Auth-Token set to that string
+static AUTH_TOKEN: once_cell::sync::Lazy<Option<String>> =
+    once_cell::sync::Lazy::new(|| std::env::var("MELWALLETD_AUTH_TOKEN").ok());
+
+fn check_auth<T>(req: &Request<T>) -> tide::Result<()> {
+    if let Some(auth_token) = AUTH_TOKEN.as_ref() {
+        if &req
+            .header("X-Melwalletd-Auth-Token")
+            .map(|v| v.get(0).unwrap().to_string())
+            .unwrap_or_default()
+            != auth_token
+        {
+            return Err(tide::Error::new(
+                tide::StatusCode::Forbidden,
+                anyhow::anyhow!("missing auth token"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
         let log_conf = std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,warn".into());
@@ -71,6 +92,7 @@ fn main() -> anyhow::Result<()> {
             CorsMiddleware::new()
                 .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap()),
         );
+        // interpret errors
         app.with(tide::utils::After(|mut res: tide::Response| async move {
             if let Some(err) = res.error() {
                 // put the error string in the response
@@ -80,10 +102,10 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(res)
         }));
-        // interpret errors
         app.at("/wallets").get(list_wallets);
         app.at("/wallets/:name").get(dump_wallet);
         app.at("/wallets/:name").put(create_wallet);
+        app.at("/wallets/:name/lock").post(lock_wallet);
         app.at("/wallets/:name/unlock").post(unlock_wallet);
         app.at("/wallets/:name/coins/:coinid").put(add_coin);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
@@ -96,10 +118,12 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn list_wallets(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
     Body::from_json(&smol::unblock(move || req.state().list_wallets()).await)
 }
 
 async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
     #[derive(Deserialize)]
     struct Query {
         testnet: bool,
@@ -124,6 +148,7 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 }
 
 async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let query: BTreeMap<String, String> = req.query()?;
     if query.contains_key("summary") {
@@ -139,6 +164,7 @@ async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 }
 
 async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let coin_id: CoinID = req.param("coinid")?.parse().map_err(to_badreq)?;
     let wallet = req
@@ -158,7 +184,15 @@ async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     Ok(Body::from_string("".into()))
 }
 
+async fn lock_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    req.state().lock(&&wallet_name);
+    Ok("".into())
+}
+
 async fn unlock_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
     #[derive(Deserialize)]
     struct Req {
         password: Option<String>,
@@ -167,13 +201,14 @@ async fn unlock_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let request: Req = req.body_json().await?;
     // attempt to unlock
     req.state()
-        .unlock_signer(&wallet_name, request.password)
+        .unlock(&wallet_name, request.password)
         .context("incorrect password")
         .map_err(to_forbidden)?;
     Ok("".into())
 }
 
 async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
     #[derive(Deserialize)]
     struct Req {
         outputs: Vec<CoinData>,
@@ -229,6 +264,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 }
 
 async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let tx: Transaction = req.body_json().await?;
     let wallet = req
@@ -242,6 +278,7 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 }
 
 async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let txhash: TxHash = TxHash(req.param("txhash")?.parse().map_err(to_badreq)?);
     let wallet = req
@@ -254,6 +291,7 @@ async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 }
 
 async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let wallet = req
         .state()

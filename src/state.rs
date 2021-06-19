@@ -93,6 +93,7 @@ impl AppState {
                         .or_default();
                     *entry += cdh.coin_data.value;
                 }
+                let locked = !self.unlocked_signers.contains_key(&name);
                 (
                     name,
                     WalletSummary {
@@ -100,6 +101,7 @@ impl AppState {
                         detailed_balance,
                         network: wd.network(),
                         address: wd.my_covenant().hash(),
+                        locked,
                     },
                 )
             })
@@ -113,7 +115,7 @@ impl AppState {
     }
 
     /// Unlocks a particular wallet. Returns None if unlocking failed.
-    pub fn unlock_signer(&self, name: &str, pwd: Option<String>) -> Option<()> {
+    pub fn unlock(&self, name: &str, pwd: Option<String>) -> Option<()> {
         let enc = self.secrets.load(name)?;
         match enc {
             PersistentSecret::Plaintext(sec) => {
@@ -126,6 +128,11 @@ impl AppState {
             }
         }
         Some(())
+    }
+
+    /// Locks a particular wallet.
+    pub fn lock(&self, name: &str) {
+        self.unlocked_signers.remove(name);
     }
 
     /// Dumps the state of a particular wallet.
@@ -176,6 +183,7 @@ pub struct WalletSummary {
     pub network: NetID,
     #[serde(with = "stdcode::asstr")]
     pub address: Address,
+    pub locked: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

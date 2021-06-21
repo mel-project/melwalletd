@@ -15,7 +15,7 @@ impl Signer for Ed25519SK {
     fn sign_tx(&self, mut txn: Transaction, input_idx: usize) -> anyhow::Result<Transaction> {
         let signature = self.sign(&txn.hash_nosigs().0);
         // fill any previous signature slots with zeros
-        while txn.sigs.len() < input_idx {
+        while txn.sigs.len() <= input_idx {
             txn.sigs.push(HexBytes(vec![]));
         }
         txn.sigs[input_idx] = HexBytes(signature);

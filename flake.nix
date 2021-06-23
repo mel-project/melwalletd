@@ -3,56 +3,61 @@
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-20.09";
   inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.mozilla = { url = "github:mozilla/nixpkgs-mozilla"; flake = false; };
   inputs.fenix = {
-      url = "github:nix-community/fenix";
-      inputs.nixpkgs.follows = "nixpkgs";
+    url = "github:nix-community/fenix";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+  inputs.naersk = {
+    url = "github:nmattia/naersk";
+    inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
     { self
     , nixpkgs
-    , mozilla
     , flake-utils
     , fenix
+    , naersk
     , ...
     } @inputs:
 
     flake-utils.lib.eachDefaultSystem
       (system: let
 
+        target = "x86_64-unknown-linux-musl";
+        #target = "x86_64-unknown-linux-gnu";
+
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [
-            (import "${mozilla}/rust-overlay.nix")
-            fenix.overlay
+        };
+
+        # Rust toolchain
+        toolchain = with fenix.packages.${system};
+          combine [
+            minimal.rustc
+            minimal.cargo
+            targets.${target}.latest.rust-std
           ];
-        };
 
-        rustPlatform = pkgs.makeRustPlatform {
-          inherit (fenix.packages.${system}.minimal) cargo rustc;
-        };
-
+        # To read melwalletd project metadata
         cargoToml = (builtins.fromTOML (builtins.readFile ./Cargo.toml));
 
         in rec {
-          packages.melwalletd = rustPlatform.buildRustPackage rec {
-            pname = cargoToml.package.name;
-            version = cargoToml.package.version;
-
-            src = "${self}";
-
-            cargoSha256 = "sha256-2yq0YlsGIRD+mFtJZnj2HkJoMz0iggaVGQoK0Yys7gc=";
+          # Build melwalletd with musl
+          packages.melwalletd = (naersk.lib.${system}.override {
+            cargo = toolchain;
+            rustc = toolchain;
+          }).buildPackage {
+            src = ./.;
+            CARGO_BUILD_TARGET = target;
+            #CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER =
+              #"${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc}/bin/${target}-gcc";
           };
 
           defaultPackage = packages.melwalletd;
 
           devShell = pkgs.mkShell {
-            buildInputs = with pkgs; [
-              (rustChannel.rust.override {
-                extensions = [ "rust-src" "-musl" ];
-              })
-            ];
+            buildInputs = with pkgs; [ toolchain ];
 
             shellHook = ''
               export PATH=$PATH:${packages.melwalletd}/bin

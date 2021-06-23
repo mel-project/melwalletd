@@ -51,20 +51,7 @@
       "inputs": {
         "flake-utils": "flake-utils",
         "mozilla": "mozilla",
-        "nixpkgs": "nixpkgs",
-        "selfDir": "selfDir"
-      }
-    },
-    "selfDir": {
-      "flake": false,
-      "locked": {
-        "narHash": "sha256-JxMlnso5JbExqnIxkztpyI3jJ5oH1Miq9N3+FVE+Xf0=",
-        "path": ".",
-        "type": "path"
-      },
-      "original": {
-        "path": ".",
-        "type": "path"
+        "nixpkgs": "nixpkgs"
       }
     }
   },

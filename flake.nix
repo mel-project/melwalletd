@@ -4,14 +4,12 @@
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-20.09";
   inputs.flake-utils.url = "github:numtide/flake-utils";
   inputs.mozilla = { url = "github:mozilla/nixpkgs-mozilla"; flake = false; };
-  inputs.selfDir = { url = "path:."; flake = false; };
 
   outputs =
     { self
     , nixpkgs
     , mozilla
     , flake-utils
-    , selfDir
     , ...
     } @inputs:
     let
@@ -27,7 +25,9 @@
           cargo = rustChannel.rust;
       };
 
-    in flake-utils.lib.eachDefaultSystem
+    #in flake-utils.lib.eachDefaultSystem
+    in flake-utils.lib.eachSystem
+    [ "x86_64-linux" ]
       (system: let
 
         pkgs = import nixpkgs {
@@ -38,30 +38,34 @@
           ];
         };
 
-        rustPlatform = let rustChannel = pkgs.rustChannelOf {
-          channel = "1.52.0";
-          sha256 = "sha256-fcaq7+4shIvAy0qMuC3nnYGd0ZikkR5ln/rAruHA6mM=";
-        }; in
-          pkgs.makeRustPlatform {
-            cargo = rustChannel.rust;
-            rustc = rustChannel.rust;
-          };
+        rust = pkgs.rustc.override {
+          targets = [ "x86_64-unknown-linux-musl" ];
+        };
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = rust;
+          rustc = rust;
+        };
+
+        cargoToml = (builtins.fromTOML (builtins.readFile ./Cargo.toml));
 
         in rec {
           packages.melwalletd = rustPlatform.buildRustPackage rec {
-            pname = "melwalletd";
-            version = "0.1.0-alpha";
+            pname = cargoToml.package.name;
+            version = cargoToml.package.version;
+            RUSTFLAGS = "--target sdf";
 
-            src = "${selfDir}";
+            src = "${self}";
 
-            cargoSha256 = "sha256-3VyGVxJqIdz1RNfdIi492tWMaM1Kxn18uBSvhPLNBCw=";
+            cargoSha256 = "sha256-2yq0YlsGIRD+mFtJZnj2HkJoMz0iggaVGQoK0Yys7gc=";
           };
 
           defaultPackage = packages.melwalletd;
 
           devShell = pkgs.mkShell {
             buildInputs = with pkgs; [
-              (rustChannel.rust.override { extensions = [ "rust-src" ]; })
+              (rustChannel.rust.override {
+                extensions = [ "rust-src" "-musl" ];
+              })
             ];
 
             shellHook = ''

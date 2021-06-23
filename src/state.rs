@@ -5,14 +5,21 @@ use std::{
     time::Duration,
 };
 
-use crate::{acidjson::AcidJson, multi::MultiWallet, walletdata::WalletData};
+use crate::{
+    multi::MultiWallet,
+    secrets::{EncryptedSK, PersistentSecret, SecretStore},
+    signer::Signer,
+    walletdata::WalletData,
+};
+use acidjson::AcidJson;
 use anyhow::Context;
+use dashmap::DashMap;
 use nanorand::RNG;
-use nodeprot::ValClient;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use themelio_nodeprot::ValClient;
 use themelio_stf::{
-    melvm::{CovHash, Covenant},
+    melvm::{Address, Covenant},
     CoinDataHeight, CoinID, Denom, NetID, Transaction, TxHash,
 };
 use tmelcrypt::Ed25519SK;
@@ -21,12 +28,19 @@ use tmelcrypt::Ed25519SK;
 pub struct AppState {
     multi: MultiWallet,
     clients: HashMap<NetID, ValClient>,
+    unlocked_signers: DashMap<String, Arc<dyn Signer>>,
+    secrets: SecretStore,
     _confirm_task: smol::Task<()>,
 }
 
 impl AppState {
     /// Creates a new appstate, given a mainnet and testnet server.
-    pub fn new(multi: MultiWallet, mainnet_addr: SocketAddr, testnet_addr: SocketAddr) -> Self {
+    pub fn new(
+        multi: MultiWallet,
+        secrets: SecretStore,
+        mainnet_addr: SocketAddr,
+        testnet_addr: SocketAddr,
+    ) -> Self {
         let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
         let testnet_client = ValClient::new(NetID::Testnet, testnet_addr);
         mainnet_client.trust(
@@ -53,6 +67,8 @@ impl AppState {
         Self {
             multi,
             clients,
+            unlocked_signers: Default::default(),
+            secrets,
             _confirm_task,
         }
     }
@@ -77,6 +93,7 @@ impl AppState {
                         .or_default();
                     *entry += cdh.coin_data.value;
                 }
+                let locked = !self.unlocked_signers.contains_key(&name);
                 (
                     name,
                     WalletSummary {
@@ -84,10 +101,38 @@ impl AppState {
                         detailed_balance,
                         network: wd.network(),
                         address: wd.my_covenant().hash(),
+                        locked,
                     },
                 )
             })
             .collect()
+    }
+
+    /// Obtains the signer of a wallet. If the wallet is still locked, returns None.
+    pub fn get_signer(&self, name: &str) -> Option<Arc<dyn Signer>> {
+        let res = self.unlocked_signers.get(name)?;
+        Some(res.clone())
+    }
+
+    /// Unlocks a particular wallet. Returns None if unlocking failed.
+    pub fn unlock(&self, name: &str, pwd: Option<String>) -> Option<()> {
+        let enc = self.secrets.load(name)?;
+        match enc {
+            PersistentSecret::Plaintext(sec) => {
+                self.unlocked_signers.insert(name.to_owned(), Arc::new(sec));
+            }
+            PersistentSecret::PasswordEncrypted(enc) => {
+                let decrypted = enc.decrypt(&pwd?)?;
+                self.unlocked_signers
+                    .insert(name.to_owned(), Arc::new(decrypted));
+            }
+        }
+        Some(())
+    }
+
+    /// Locks a particular wallet.
+    pub fn lock(&self, name: &str) {
+        self.unlocked_signers.remove(name);
     }
 
     /// Dumps the state of a particular wallet.
@@ -98,14 +143,26 @@ impl AppState {
     }
 
     /// Creates a wallet with a given name. If the wallet was successfully created, return its secret key.
-    pub fn create_wallet(&self, name: &str, network: NetID) -> Option<Ed25519SK> {
+    pub fn create_wallet(
+        &self,
+        name: &str,
+        network: NetID,
+        key: Ed25519SK,
+        pwd: Option<String>,
+    ) -> Option<()> {
         if self.list_wallets().contains_key(name) {
             return None;
         }
-        let (pk, sk) = tmelcrypt::ed25519_keygen();
-        let covenant = Covenant::std_ed25519_pk_new(pk);
+        let covenant = Covenant::std_ed25519_pk_new(key.to_public());
         self.multi.create_wallet(name, covenant, network).ok()?;
-        Some(sk)
+        self.secrets.store(
+            name.to_owned(),
+            match pwd {
+                Some(pwd) => PersistentSecret::PasswordEncrypted(EncryptedSK::new(key, &pwd)),
+                None => PersistentSecret::Plaintext(key),
+            },
+        );
+        Some(())
     }
 
     /// Gets a reference to the inner stuff.
@@ -125,7 +182,8 @@ pub struct WalletSummary {
     pub detailed_balance: BTreeMap<String, u128>,
     pub network: NetID,
     #[serde(with = "stdcode::asstr")]
-    pub address: CovHash,
+    pub address: Address,
+    pub locked: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -200,10 +258,10 @@ async fn confirm_one(
             .filter(|v| v.1.covhash == my_covhash)
             .map(|v| v.0);
         for change_idx in change_indexes {
-            let coin_id = random_tx.get_coinid(change_idx as u8);
+            let coin_id = random_tx.output_coinid(change_idx as u8);
             log::trace!("confirm_one looking at {}", coin_id);
             let cdh = snapshot
-                .get_coin(random_tx.get_coinid(change_idx as u8))
+                .get_coin(random_tx.output_coinid(change_idx as u8))
                 .await
                 .context("cannot get coin")?;
             if let Some(cdh) = cdh {

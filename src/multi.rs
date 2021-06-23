@@ -1,15 +1,16 @@
+use acidjson::AcidJson;
 use anyhow::Context;
 use dashmap::DashMap;
 use std::path::{Path, PathBuf};
 use std::{io::prelude::*, sync::Arc};
 use themelio_stf::{melvm::Covenant, NetID};
 
-use crate::{acidjson::AcidJson, walletdata::WalletData};
+use crate::walletdata::WalletData;
 
-/// Represents a whole directory of wallet JSON files.
+/// Represents a whole directory of wallet JSON files
 #[derive(Clone)]
 pub struct MultiWallet {
-    cache: Arc<DashMap<String, AcidJson<WalletData>>>,
+    wallet_cache: Arc<DashMap<String, AcidJson<WalletData>>>,
     dirname: PathBuf,
 }
 
@@ -22,7 +23,7 @@ impl MultiWallet {
     pub fn open(directory: &Path) -> anyhow::Result<Self> {
         std::fs::read_dir(directory).context("cannot open directory")?;
         Ok(MultiWallet {
-            cache: Default::default(),
+            wallet_cache: Default::default(),
             dirname: directory.to_owned(),
         })
     }
@@ -43,7 +44,7 @@ impl MultiWallet {
         let mut fpath = self.dirname.clone();
         fpath.push(PathBuf::from(fname));
         let labooyah = self
-            .cache
+            .wallet_cache
             .entry(name.to_string())
             .or_try_insert_with(|| AcidJson::open(&fpath))?;
         Ok(labooyah.value().clone())

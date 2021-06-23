@@ -9,7 +9,7 @@ use themelio_stf::{
     MAX_COINVAL,
 };
 
-/// Immutable & cloneable in-memory data that can be persisted.
+/// Cloneable in-memory data that can be persisted.
 /// Does not store secrets!
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -77,7 +77,7 @@ impl WalletData {
         &self,
         outputs: Vec<CoinData>,
         fee_multiplier: u128,
-        sign: impl Fn(Transaction) -> Transaction,
+        sign: impl Fn(Transaction) -> anyhow::Result<Transaction>,
     ) -> anyhow::Result<Transaction> {
         let gen_transaction = |fee| {
             // find coins that might match
@@ -127,10 +127,14 @@ impl WalletData {
             txn.outputs.extend(change.into_iter());
             assert!(txn.is_well_formed());
             let signed_txn = sign(txn);
-            if signed_txn.fee <= dbg!(signed_txn.base_fee(dbg!(fee_multiplier), 0)) * 21 / 20 {
-                Direction::Low(Some(signed_txn))
+            if let Ok(signed_txn) = signed_txn {
+                if signed_txn.fee <= signed_txn.base_fee(fee_multiplier, 0) * 21 / 20 {
+                    Direction::Low(Some(signed_txn))
+                } else {
+                    Direction::High(Some(signed_txn))
+                }
             } else {
-                Direction::High(Some(signed_txn))
+                Direction::High(None)
             }
         };
         let (_, (_, val)) =
@@ -186,7 +190,7 @@ impl WalletData {
             .iter()
             .enumerate()
             .map(|(i, cd)| {
-                let coin_id = raw.get_coinid(i as u8).to_string();
+                let coin_id = raw.output_coinid(i as u8).to_string();
                 let is_change = cd.covhash == self.my_covenant.hash();
                 let coin_data = cd.clone();
                 AnnCoinID {

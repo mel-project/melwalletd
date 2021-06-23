@@ -4,46 +4,33 @@
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-20.09";
   inputs.flake-utils.url = "github:numtide/flake-utils";
   inputs.mozilla = { url = "github:mozilla/nixpkgs-mozilla"; flake = false; };
+  inputs.fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+  };
 
   outputs =
     { self
     , nixpkgs
     , mozilla
     , flake-utils
+    , fenix
     , ...
     } @inputs:
-    let
-      rustOverlay = final: prev:
-        let rustChannel = prev.rustChannelOf {
-          channel = "1.52.0";
-          sha256 = "sha256-fcaq7+4shIvAy0qMuC3nnYGd0ZikkR5ln/rAruHA6mM=";
-          #channel = "nightly";
-          #sha256 = "sha256-yvUmasDp4hTmipedyiWEjFCAsZHuIiODCygBfdrTeqs";
-        };
-        in { inherit rustChannel;
-          rustc = rustChannel.rust;
-          cargo = rustChannel.rust;
-      };
 
-    #in flake-utils.lib.eachDefaultSystem
-    in flake-utils.lib.eachSystem
-    [ "x86_64-linux" ]
+    flake-utils.lib.eachDefaultSystem
       (system: let
 
         pkgs = import nixpkgs {
           inherit system;
           overlays = [
             (import "${mozilla}/rust-overlay.nix")
-            rustOverlay
+            fenix.overlay
           ];
         };
 
-        rust = pkgs.rustc.override {
-          targets = [ "x86_64-unknown-linux-musl" ];
-        };
         rustPlatform = pkgs.makeRustPlatform {
-          cargo = rust;
-          rustc = rust;
+          inherit (fenix.packages.${system}.minimal) cargo rustc;
         };
 
         cargoToml = (builtins.fromTOML (builtins.readFile ./Cargo.toml));
@@ -52,7 +39,6 @@
           packages.melwalletd = rustPlatform.buildRustPackage rec {
             pname = cargoToml.package.name;
             version = cargoToml.package.version;
-            RUSTFLAGS = "--target sdf";
 
             src = "${self}";
 

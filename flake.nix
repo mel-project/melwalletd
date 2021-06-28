@@ -3,66 +3,61 @@
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-20.09";
   inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.mozilla = { url = "github:mozilla/nixpkgs-mozilla"; flake = false; };
-  inputs.selfDir = { url = "path:."; flake = false; };
+  inputs.fenix = {
+    url = "github:nix-community/fenix";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+  inputs.naersk = {
+    url = "github:nmattia/naersk";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
   outputs =
     { self
     , nixpkgs
-    , mozilla
     , flake-utils
-    , selfDir
+    , fenix
+    , naersk
     , ...
     } @inputs:
-    let
-      rustOverlay = final: prev:
-        let rustChannel = prev.rustChannelOf {
-          channel = "1.52.0";
-          sha256 = "sha256-fcaq7+4shIvAy0qMuC3nnYGd0ZikkR5ln/rAruHA6mM=";
-          #channel = "nightly";
-          #sha256 = "sha256-yvUmasDp4hTmipedyiWEjFCAsZHuIiODCygBfdrTeqs";
-        };
-        in { inherit rustChannel;
-          rustc = rustChannel.rust;
-          cargo = rustChannel.rust;
-      };
 
-    in flake-utils.lib.eachDefaultSystem
+    flake-utils.lib.eachDefaultSystem
       (system: let
+
+        target = "x86_64-unknown-linux-musl";
+        #target = "x86_64-unknown-linux-gnu";
 
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [
-            (import "${mozilla}/rust-overlay.nix")
-            rustOverlay
-          ];
         };
 
-        rustPlatform = let rustChannel = pkgs.rustChannelOf {
-          channel = "1.52.0";
-          sha256 = "sha256-fcaq7+4shIvAy0qMuC3nnYGd0ZikkR5ln/rAruHA6mM=";
-        }; in
-          pkgs.makeRustPlatform {
-            cargo = rustChannel.rust;
-            rustc = rustChannel.rust;
-          };
+        # Rust toolchain
+        toolchain = with fenix.packages.${system};
+          combine [
+            minimal.rustc
+            minimal.cargo
+            targets.${target}.latest.rust-std
+          ];
+
+        # To read melwalletd project metadata
+        cargoToml = (builtins.fromTOML (builtins.readFile ./Cargo.toml));
 
         in rec {
-          packages.melwalletd = rustPlatform.buildRustPackage rec {
-            pname = "melwalletd";
-            version = "0.1.0-alpha";
-
-            src = "${selfDir}";
-
-            cargoSha256 = "sha256-3VyGVxJqIdz1RNfdIi492tWMaM1Kxn18uBSvhPLNBCw=";
+          # Build melwalletd with musl
+          packages.melwalletd = (naersk.lib.${system}.override {
+            cargo = toolchain;
+            rustc = toolchain;
+          }).buildPackage {
+            src = ./.;
+            CARGO_BUILD_TARGET = target;
+            #CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER =
+              #"${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc}/bin/${target}-gcc";
           };
 
           defaultPackage = packages.melwalletd;
 
           devShell = pkgs.mkShell {
-            buildInputs = with pkgs; [
-              (rustChannel.rust.override { extensions = [ "rust-src" ]; })
-            ];
+            buildInputs = with pkgs; [ toolchain ];
 
             shellHook = ''
               export PATH=$PATH:${packages.melwalletd}/bin

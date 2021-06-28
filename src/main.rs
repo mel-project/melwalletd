@@ -13,7 +13,9 @@ use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
-use themelio_stf::{CoinData, CoinID, Denom, NetID, Transaction, TxHash, TxKind, MICRO_CONVERTER};
+use themelio_stf::{
+    CoinData, CoinID, Denom, NetID, PoolKey, Transaction, TxHash, TxKind, MICRO_CONVERTER,
+};
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
 use tmelcrypt::Ed25519SK;
@@ -102,6 +104,7 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(res)
         }));
+        app.at("/pools/:pair").get(get_pool);
         app.at("/wallets").get(list_wallets);
         app.at("/wallets/:name").get(dump_wallet);
         app.at("/wallets/:name").put(create_wallet);
@@ -115,6 +118,34 @@ fn main() -> anyhow::Result<()> {
         app.listen(args.listen).await?;
         Ok(())
     })
+}
+
+async fn get_pool(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    let query: BTreeMap<String, String> = req.query()?;
+    let network = if query.get("testnet").is_some() {
+        NetID::Testnet
+    } else {
+        NetID::Mainnet
+    };
+    let client = req.state().client(network).clone();
+    let pool_key: PoolKey = req
+        .param("pair")?
+        .replace(":", "/")
+        .parse()
+        .map_err(to_badreq)?;
+    let pool_key = pool_key
+        .to_canonical()
+        .ok_or_else(|| to_badreq(anyhow::anyhow!("bad pool key")))?;
+    let pool_state = client
+        .snapshot()
+        .await
+        .map_err(to_badgateway)?
+        .get_pool(pool_key)
+        .await
+        .map_err(to_badgateway)?
+        .ok_or_else(|| to_badreq(anyhow::anyhow!("pool not found")))?;
+    Body::from_json(&pool_state)
 }
 
 async fn list_wallets(req: Request<Arc<AppState>>) -> tide::Result<Body> {

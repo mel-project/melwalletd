@@ -92,7 +92,8 @@ fn main() -> anyhow::Result<()> {
         // set CORS
         app.with(
             CorsMiddleware::new()
-                .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap()),
+                .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap())
+                .allow_origin("*"),
         );
         // interpret errors
         app.with(tide::utils::After(|mut res: tide::Response| async move {
@@ -193,6 +194,12 @@ async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         Body::from_json(&req.state().dump_wallet(&wallet_name).ok_or_else(notfound)?)
     }
 }
+
+// async fn sweep_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+//     check_auth(&req)?;
+//     let wallet_name = req.param("name").map(|v| v.to_string())?;
+
+// }
 
 async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;

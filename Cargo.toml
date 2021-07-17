@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 themelio-stf= "0.4"
-themelio-nodeprot="0.2"
+themelio-nodeprot= "0.3.1"
 http-types="2.11"
 tmelcrypt = "0.1.0"
 smolscale= "0.2.3"

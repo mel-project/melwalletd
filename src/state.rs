@@ -194,7 +194,7 @@ pub struct WalletDump {
 
 // task that periodically pulls random coins to try to confirm
 async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
-    let mut pacer = smol::Timer::interval(Duration::from_secs(1));
+    let mut pacer = smol::Timer::interval(Duration::from_millis(100));
     let sent = Arc::new(Mutex::new(HashSet::new()));
     loop {
         (&mut pacer).await;

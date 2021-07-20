@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, s
 use anyhow::Context;
 use http_types::headers::HeaderValue;
 use multi::MultiWallet;
-use nanorand::RNG;
+use nanorand::Rng;
 use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
@@ -353,7 +353,7 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
             additional_data: vec![],
         }],
         data: (0..32)
-            .map(|_| nanorand::tls_rng().generate_range(u8::MIN, u8::MAX))
+            .map(|_| nanorand::tls_rng().generate_range(u8::MIN..=u8::MAX))
             .collect(),
         fee: MICRO_CONVERTER,
         scripts: vec![],

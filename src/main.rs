@@ -93,8 +93,7 @@ fn main() -> anyhow::Result<()> {
         app.with(
             CorsMiddleware::new()
                 .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap())
-                .allow_origin("*")
-                .allow_origin("wry://"),
+                .allow_origin("*"),
         );
         // interpret errors
         app.with(tide::utils::After(|mut res: tide::Response| async move {

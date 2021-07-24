@@ -14,7 +14,6 @@ use crate::{
 use acidjson::AcidJson;
 use anyhow::Context;
 use dashmap::DashMap;
-use nanorand::Rng;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use themelio_nodeprot::ValClient;
@@ -202,8 +201,7 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
         if possible_wallets.is_empty() {
             continue;
         }
-        let wallet_name =
-            &possible_wallets[nanorand::tls_rng().generate_range(0..possible_wallets.len())];
+        let wallet_name = &possible_wallets[fastrand::usize(0..possible_wallets.len())];
         let wallet = multi.get_wallet(&wallet_name);
         match wallet {
             Err(err) => {
@@ -236,10 +234,8 @@ async fn confirm_one(
         return Ok(());
     }
     let snapshot = client.snapshot().await.context("cannot snapshot")?;
-    let random_tx = &in_progress[nanorand::tls_rng().generate_range(0..in_progress.len())];
-    if nanorand::tls_rng().generate_range(0u8..10) == 0
-        || sent.lock().insert(random_tx.hash_nosigs())
-    {
+    let random_tx = &in_progress[fastrand::usize(0..in_progress.len())];
+    if fastrand::u8(0u8..10) == 0 || sent.lock().insert(random_tx.hash_nosigs()) {
         if let Err(err) = snapshot.get_raw().send_tx(random_tx.clone()).await {
             log::debug!(
                 "retransmission of {} saw error: {:?}",

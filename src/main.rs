@@ -8,7 +8,6 @@ use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, s
 use anyhow::Context;
 use http_types::headers::HeaderValue;
 use multi::MultiWallet;
-use nanorand::Rng;
 use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
@@ -249,6 +248,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
     #[derive(Deserialize)]
     struct Req {
+        inputs: Option<Vec<CoinID>>,
         outputs: Vec<CoinData>,
         signing_key: Option<String>,
         kind: Option<TxKind>,
@@ -280,9 +280,11 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         None => None,
     };
     let prepared_tx = smol::unblock(move || {
-        wallet
-            .read()
-            .prepare(request.outputs, fee_multiplier, |mut tx: Transaction| {
+        wallet.read().prepare(
+            request.inputs.unwrap_or_default(),
+            request.outputs,
+            fee_multiplier,
+            |mut tx: Transaction| {
                 if let Some(kind) = kind {
                     tx.kind = kind
                 }
@@ -293,7 +295,8 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
                     tx = signing_key.sign_tx(tx, i)?;
                 }
                 Ok(tx)
-            })
+            },
+        )
     })
     .await
     .map_err(to_badreq)?;
@@ -351,9 +354,7 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
             denom: Denom::Mel,
             additional_data: vec![],
         }],
-        data: (0..32)
-            .map(|_| nanorand::tls_rng().generate_range(u8::MIN..=u8::MAX))
-            .collect(),
+        data: (0..32).map(|_| fastrand::u8(0..=255)).collect(),
         fee: MICRO_CONVERTER,
         scripts: vec![],
         sigs: vec![],

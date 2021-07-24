@@ -75,10 +75,20 @@ impl WalletData {
     /// Creates an **unsigned** transaction out of the coins in the data. Does not spend it yet.
     pub fn prepare(
         &self,
+        inputs: Vec<CoinID>,
         outputs: Vec<CoinData>,
         fee_multiplier: u128,
         sign: impl Fn(Transaction) -> anyhow::Result<Transaction>,
     ) -> anyhow::Result<Transaction> {
+        let mut mandatory_inputs = BTreeMap::new();
+        // first we add the "mandatory" inputs
+        for input in inputs {
+            let coindata = self
+                .unspent_coins
+                .get(&input)
+                .context("mandatory input not found in wallet")?;
+            mandatory_inputs.insert(input, coindata.clone());
+        }
         let gen_transaction = |fee| {
             // find coins that might match
             let mut txn = Transaction {
@@ -95,7 +105,18 @@ impl WalletData {
             let output_sum = txn.total_outputs();
 
             let mut input_sum: BTreeMap<Denom, u128> = BTreeMap::new();
+            // first we add the "mandatory" inputs
+            for (coin, data) in mandatory_inputs.iter() {
+                txn.inputs.push(*coin);
+                let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(0);
+                input_sum.insert(data.coin_data.denom, existing_val + data.coin_data.value);
+            }
+            // then we add random other inputs until enough.
             for (coin, data) in self.unspent_coins.iter() {
+                if mandatory_inputs.contains_key(coin) {
+                    // we should not add a mandatory input back in
+                    continue;
+                }
                 let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(0);
                 if existing_val < output_sum.get(&data.coin_data.denom).cloned().unwrap_or(0) {
                     txn.inputs.push(*coin);

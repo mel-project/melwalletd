@@ -1579,13 +1579,12 @@ dependencies = [
  "crypto_api",
  "crypto_api_chachapoly",
  "dashmap",
+ "fastrand",
  "getrandom 0.2.3",
  "hex",
  "http-types",
- "im",
  "libc",
  "log",
- "nanorand",
  "once_cell",
  "parking_lot",
  "rust-argon2",
@@ -1645,12 +1644,6 @@ dependencies = [
  "adler",
  "autocfg",
 ]
-
-[[package]]
-name = "nanorand"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02e9763cb29f123419ae7ec2a81b9e270b25ecf5ffd3744b6823680d73073fb7"
 
 [[package]]
 name = "nix"

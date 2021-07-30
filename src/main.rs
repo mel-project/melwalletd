@@ -253,6 +253,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         signing_key: Option<String>,
         kind: Option<TxKind>,
         data: Option<String>,
+        nobalance: Option<Vec<Denom>>,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
@@ -296,6 +297,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
                 }
                 Ok(tx)
             },
+            request.nobalance.unwrap_or_default(),
         )
     })
     .await

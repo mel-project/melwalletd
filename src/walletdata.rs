@@ -79,6 +79,7 @@ impl WalletData {
         outputs: Vec<CoinData>,
         fee_multiplier: u128,
         sign: impl Fn(Transaction) -> anyhow::Result<Transaction>,
+        nobalance: Vec<Denom>,
     ) -> anyhow::Result<Transaction> {
         let mut mandatory_inputs = BTreeMap::new();
         // first we add the "mandatory" inputs
@@ -102,7 +103,7 @@ impl WalletData {
             };
 
             // compute output sum
-            let output_sum = txn.total_outputs();
+            let mut output_sum = txn.total_outputs();
 
             let mut input_sum: BTreeMap<Denom, u128> = BTreeMap::new();
             // first we add the "mandatory" inputs
@@ -111,6 +112,13 @@ impl WalletData {
                 let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(0);
                 input_sum.insert(data.coin_data.denom, existing_val + data.coin_data.value);
             }
+
+            // don't try to balance the nobalance stuff
+            for denom in nobalance.iter() {
+                output_sum.remove(denom);
+                input_sum.remove(denom);
+            }
+
             // then we add random other inputs until enough.
             for (coin, data) in self.unspent_coins.iter() {
                 if mandatory_inputs.contains_key(coin) {

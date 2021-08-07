@@ -202,7 +202,7 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
             continue;
         }
         let wallet_name = &possible_wallets[fastrand::usize(0..possible_wallets.len())];
-        let wallet = multi.get_wallet(&wallet_name);
+        let wallet = multi.get_wallet(wallet_name);
         match wallet {
             Err(err) => {
                 log::error!("could not read wallet: {:?}", err);

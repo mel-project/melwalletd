@@ -224,7 +224,7 @@ async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 async fn lock_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    req.state().lock(&&wallet_name);
+    req.state().lock(&wallet_name);
     Ok("".into())
 }
 
@@ -261,7 +261,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         Arc::new(signing_key.parse::<Ed25519SK>()?)
     } else {
         req.state()
-            .get_signer(&&wallet_name)
+            .get_signer(&wallet_name)
             .context("wallet is locked")
             .map_err(to_forbidden)?
     };

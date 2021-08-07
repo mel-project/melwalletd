@@ -120,7 +120,11 @@ impl WalletData {
             }
 
             // then we add random other inputs until enough.
-            for (coin, data) in self.unspent_coins.iter() {
+            for (coin, data) in self
+                .unspent_coins
+                .iter()
+                .filter(|(_, data)| !nobalance.contains(&data.coin_data.denom))
+            {
                 if mandatory_inputs.contains_key(coin) {
                     // we should not add a mandatory input back in
                     continue;

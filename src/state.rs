@@ -50,11 +50,9 @@ impl AppState {
         );
         testnet_client.trust(
             400167,
-            HashVal(
-                hex::decode("bf8a7194dcef69eb3a0c9a3664d58156f68ca4092306ce04eda08bfe794db940")?
-                    .try_into()
-                    .unwrap(),
-            ),
+            "bf8a7194dcef69eb3a0c9a3664d58156f68ca4092306ce04eda08bfe794db940"
+                .parse()
+                .unwrap(),
         );
         let clients: HashMap<NetID, ValClient> = vec![
             (NetID::Mainnet, mainnet_client),

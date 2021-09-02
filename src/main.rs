@@ -13,7 +13,7 @@ use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
 use themelio_stf::{
-    CoinData, CoinID, Denom, NetID, PoolKey, Transaction, TxHash, TxKind, MICRO_CONVERTER,
+    CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash, TxKind, MICRO_CONVERTER,
 };
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
@@ -104,6 +104,7 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(res)
         }));
+        app.at("/summary").get(get_summary);
         app.at("/pools/:pair").get(get_pool);
         app.at("/wallets").get(list_wallets);
         app.at("/wallets/:name").get(dump_wallet);
@@ -113,12 +114,27 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/check").put(check_wallet);
         app.at("/wallets/:name/coins/:coinid").put(add_coin);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
+        app.at("/wallets/:name/prepare-stake-tx")
+            .post(prepare_stake_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
         app.at("/wallets/:name/send-faucet").post(send_faucet);
         app.at("/wallets/:name/transactions/:txhash").get(get_tx);
         app.listen(args.listen).await?;
         Ok(())
     })
+}
+
+async fn get_summary(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    let query: BTreeMap<String, String> = req.query()?;
+    let network = if query.get("testnet").is_some() {
+        NetID::Testnet
+    } else {
+        NetID::Mainnet
+    };
+    let client = req.state().client(network).clone();
+    let snap = client.snapshot().await?;
+    Body::from_json(&snap.current_header())
 }
 
 async fn get_pool(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -272,6 +288,33 @@ async fn unlock_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .context("incorrect password")
         .map_err(to_forbidden)?;
     Ok("".into())
+}
+
+async fn prepare_stake_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let stake_doc: StakeDoc = req.body_json().await?;
+    let signing_key = req
+        .state()
+        .get_signer(&wallet_name)
+        .context("wallet is locked")
+        .map_err(to_forbidden)?;
+    let wallet = req
+        .state()
+        .multi()
+        .get_wallet(&wallet_name)
+        .map_err(to_badreq)?;
+    let network = wallet.read().network();
+    let fee_multiplier = req.state().current_fee_multiplier(network).await?;
+    let prepared = wallet
+        .read()
+        .prepare_stake(stake_doc, fee_multiplier, |mut tx| {
+            for i in 0..tx.inputs.len() {
+                tx = signing_key.sign_tx(tx, i)?;
+            }
+            Ok(tx)
+        })?;
+    Ok(Body::from_json(&prepared)?)
 }
 
 async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {

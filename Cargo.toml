@@ -7,22 +7,22 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-themelio-stf= "0.5.3"
+themelio-stf= "0.5.5"
 themelio-nodeprot= "0.4.1"
-http-types= "2.11.1"
+http-types= "2.12.0"
 tmelcrypt = "0.1.0"
-smolscale= "0.3.11"
-serde={ version = "1.0.127", features = ["derive"] }
-anyhow= "1.0.42"
+smolscale= "0.3.12"
+serde={ version = "1.0.130", features = ["derive"] }
+anyhow= "1.0.43"
 # im={ version = "15.0.0", features = ["serde"] }
 atomicwrites= "0.3.0"
-parking_lot= "0.11.1"
-serde_json= { version = "1.0.66", features = ["arbitrary_precision"] }
+parking_lot= "0.11.2"
+serde_json= { version = "1.0.67", features = ["arbitrary_precision"] }
 dashmap= "4.0.2"
-structopt= "0.3.22"
+structopt= "0.3.23"
 stdcode= "0.1.2"
 tide= "0.16.0"
-tracing-subscriber = "0.2.19"
+tracing-subscriber = "0.2.20"
 log= "0.4.14"
 tracing= "0.1.26"
 smol= "1.2.5"
@@ -36,7 +36,7 @@ rust-argon2= "0.8.3"
 getrandom= "0.2.3"
 crypto_api_chachapoly= "0.4.3"
 crypto_api= "0.2.2"
-libc= "0.2.98"
+libc= "0.2.101"
 once_cell = "1.8.0"
 
 # prevent key derivation from being ridiculously slow

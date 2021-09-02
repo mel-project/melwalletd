@@ -85,6 +85,32 @@ impl WalletData {
                 .is_none()
     }
 
+    /// Convenience method to prepare a staking transaction that sends the staked syms back to oneself.
+    pub fn prepare_stake(
+        &self,
+        stake_doc: StakeDoc,
+        fee_multiplier: u128,
+        sign: impl Fn(Transaction) -> anyhow::Result<Transaction>,
+    ) -> anyhow::Result<Transaction> {
+        let frozen_output = CoinData {
+            covhash: self.my_covenant().hash(),
+            value: stake_doc.syms_staked,
+            denom: Denom::Sym,
+            additional_data: vec![],
+        };
+        self.prepare(
+            vec![],
+            vec![frozen_output],
+            fee_multiplier,
+            move |mut tx| {
+                tx.kind = TxKind::Stake;
+                tx.data = stdcode::serialize(&stake_doc).unwrap();
+                sign(tx)
+            },
+            vec![],
+        )
+    }
+
     /// Creates an **unsigned** transaction out of the coins in the data. Does not spend it yet.
     pub fn prepare(
         &self,
@@ -137,7 +163,7 @@ impl WalletData {
             // we filter out everything that is in the stake list.
             for (coin, data) in self.unspent_coins.iter().filter(|(cid, data)| {
                 !nobalance.contains(&data.coin_data.denom)
-                    && !self.stake_list.contains_key(&cid.txhash)
+                    && !(self.stake_list.contains_key(&cid.txhash) && cid.index == 0)
             }) {
                 if mandatory_inputs.contains_key(coin) {
                     // we should not add a mandatory input back in

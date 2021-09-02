@@ -9,6 +9,7 @@ use crate::{
     multi::MultiWallet,
     secrets::{EncryptedSK, PersistentSecret, SecretStore},
     signer::Signer,
+    to_badgateway,
     walletdata::WalletData,
 };
 use acidjson::AcidJson;
@@ -190,6 +191,13 @@ impl AppState {
     /// Gets a reference to the client.
     pub fn client(&self, network: NetID) -> &ValClient {
         &self.clients[&network]
+    }
+
+    /// Calculates the current fee multiplier, given the network.
+    pub async fn current_fee_multiplier(&self, network: NetID) -> tide::Result<u128> {
+        let client = self.client(network).clone();
+        let snapshot = client.snapshot().await.map_err(to_badgateway)?;
+        Ok(snapshot.current_header().fee_multiplier)
     }
 }
 

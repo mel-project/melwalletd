@@ -110,6 +110,7 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name").put(create_wallet);
         app.at("/wallets/:name/lock").post(lock_wallet);
         app.at("/wallets/:name/unlock").post(unlock_wallet);
+        app.at("/wallets/:name/check").put(check_wallet);
         app.at("/wallets/:name/coins/:coinid").put(add_coin);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
@@ -192,6 +193,35 @@ async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     } else {
         Body::from_json(&req.state().dump_wallet(&wallet_name).ok_or_else(notfound)?)
     }
+}
+
+async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let mut wallet = req
+        .state()
+        .dump_wallet(&wallet_name)
+        .ok_or_else(notfound)?
+        .full;
+    let my_covhash = wallet.my_covenant().hash();
+    // remove all coins that we don't own
+    let clean_coins = wallet
+        .unspent_coins()
+        .iter()
+        .filter(|(_, cdh)| {
+            log::debug!(
+                "checking whether {} == {}",
+                cdh.coin_data.covhash,
+                my_covhash
+            );
+            cdh.coin_data.covhash == my_covhash
+        })
+        .map(|(x, y)| (*x, y.clone()))
+        .collect::<BTreeMap<_, _>>();
+    *wallet.unspent_coins_mut() = clean_coins;
+    req.state().insert_wallet(&wallet_name, wallet);
+    log::info!("cleaned up coins for wallet {}", wallet_name);
+    Ok("".into())
 }
 
 // async fn sweep_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {

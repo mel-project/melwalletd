@@ -92,6 +92,11 @@ impl AppState {
                         .or_default();
                     *entry += cdh.coin_data.value;
                 }
+                let staked_microsym = wd
+                    .stake_list()
+                    .values()
+                    .map(|v| v.syms_staked)
+                    .sum::<u128>();
                 let locked = !self.unlocked_signers.contains_key(&name);
                 (
                     name,
@@ -101,6 +106,7 @@ impl AppState {
                         network: wd.network(),
                         address: wd.my_covenant().hash(),
                         locked,
+                        staked_microsym,
                     },
                 )
             })
@@ -141,7 +147,19 @@ impl AppState {
         Some(WalletDump { summary, full })
     }
 
-    /// Creates a wallet with a given name. If the wallet was successfully created, return its secret key.
+    /// Replaces the content of some wallet, wholesale.
+    pub fn insert_wallet(&self, name: &str, dump: WalletData) {
+        let _ = self
+            .multi
+            .create_wallet(name, dump.my_covenant().clone(), dump.network());
+        let wallet = self
+            .multi
+            .get_wallet(name)
+            .expect("this does not make any sense");
+        *wallet.write() = dump;
+    }
+
+    /// Creates a wallet with a given name.
     pub fn create_wallet(
         &self,
         name: &str,
@@ -179,6 +197,7 @@ impl AppState {
 pub struct WalletSummary {
     pub total_micromel: u128,
     pub detailed_balance: BTreeMap<String, u128>,
+    pub staked_microsym: u128,
     pub network: NetID,
     #[serde(with = "stdcode::asstr")]
     pub address: Address,
@@ -227,13 +246,16 @@ async fn confirm_one(
     client: ValClient,
     sent: Arc<Mutex<HashSet<TxHash>>>,
 ) -> anyhow::Result<()> {
+    let snapshot = client.snapshot().await.context("cannot snapshot")?;
+    wallet
+        .write()
+        .retain_valid_stakes(snapshot.current_header().height);
     let in_progress: BTreeMap<TxHash, Transaction> = wallet.read().tx_in_progress().clone();
     // we pick a random value that's in progress
     let in_progress: Vec<Transaction> = in_progress.values().cloned().collect();
     if in_progress.is_empty() {
         return Ok(());
     }
-    let snapshot = client.snapshot().await.context("cannot snapshot")?;
     let random_tx = &in_progress[fastrand::usize(0..in_progress.len())];
     if fastrand::u8(0u8..10) == 0 || sent.lock().insert(random_tx.hash_nosigs()) {
         if let Err(err) = snapshot.get_raw().send_tx(random_tx.clone()).await {

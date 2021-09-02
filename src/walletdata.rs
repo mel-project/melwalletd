@@ -5,8 +5,8 @@ use binary_search::Direction;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use themelio_stf::{
-    melvm::Covenant, CoinData, CoinDataHeight, CoinID, Denom, NetID, Transaction, TxHash, TxKind,
-    MAX_COINVAL,
+    melvm::Covenant, CoinData, CoinDataHeight, CoinID, Denom, NetID, StakeDoc, Transaction, TxHash,
+    TxKind, MAX_COINVAL, STAKE_EPOCH,
 };
 
 /// Cloneable in-memory data that can be persisted.
@@ -20,6 +20,8 @@ pub struct WalletData {
     spent_coins: BTreeMap<CoinID, CoinDataHeight>,
     tx_in_progress: BTreeMap<TxHash, Transaction>,
     tx_confirmed: BTreeMap<TxHash, (Transaction, u64)>,
+    #[serde(default)]
+    stake_list: BTreeMap<TxHash, StakeDoc>,
     my_covenant: Covenant,
     network: NetID,
 }
@@ -34,6 +36,7 @@ impl WalletData {
             tx_confirmed: BTreeMap::new(),
             my_covenant,
             network,
+            stake_list: BTreeMap::new(),
         }
     }
 
@@ -52,9 +55,19 @@ impl WalletData {
         &self.unspent_coins
     }
 
+    /// Unspent Coins
+    pub fn unspent_coins_mut(&mut self) -> &mut BTreeMap<CoinID, CoinDataHeight> {
+        &mut self.unspent_coins
+    }
+
     /// Spent Coins
     pub fn spent_coins(&self) -> &BTreeMap<CoinID, CoinDataHeight> {
         &self.spent_coins
+    }
+
+    /// Stake list
+    pub fn stake_list(&self) -> &BTreeMap<TxHash, StakeDoc> {
+        &self.stake_list
     }
 
     /// In-progress transactions
@@ -90,6 +103,7 @@ impl WalletData {
                 .context("mandatory input not found in wallet")?;
             mandatory_inputs.insert(input, coindata.clone());
         }
+        dbg!(outputs.clone());
         let gen_transaction = |fee| {
             // find coins that might match
             let mut txn = Transaction {
@@ -120,11 +134,11 @@ impl WalletData {
             }
 
             // then we add random other inputs until enough.
-            for (coin, data) in self
-                .unspent_coins
-                .iter()
-                .filter(|(_, data)| !nobalance.contains(&data.coin_data.denom))
-            {
+            // we filter out everything that is in the stake list.
+            for (coin, data) in self.unspent_coins.iter().filter(|(cid, data)| {
+                !nobalance.contains(&data.coin_data.denom)
+                    && !self.stake_list.contains_key(&cid.txhash)
+            }) {
                 if mandatory_inputs.contains_key(coin) {
                     // we should not add a mandatory input back in
                     continue;
@@ -158,7 +172,10 @@ impl WalletData {
                 change
             };
             txn.outputs.extend(change.into_iter());
-            assert!(txn.is_well_formed());
+            if !txn.is_well_formed() {
+                log::warn!("NOT WELL FORMED");
+                return Direction::High(None);
+            }
             let signed_txn = sign(txn);
             if let Ok(signed_txn) = signed_txn {
                 if signed_txn.fee <= signed_txn.base_fee(fee_multiplier, 0) * 21 / 20 {
@@ -191,9 +208,24 @@ impl WalletData {
                 .remove(&input)
                 .ok_or_else(|| anyhow::anyhow!("no such coin in data"))?;
             if scripts.get(&coindata.coin_data.covhash).is_none() {
-                anyhow::bail!("did not supply covhash")
+                let scripts = scripts
+                    .keys()
+                    .map(|f| f.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                anyhow::bail!(
+                    "attempted to spend a coin with covhash {}, but scripts have covhashes {}",
+                    coindata.coin_data.covhash,
+                    scripts
+                )
             }
             oself.spent_coins.insert(input, coindata);
+        }
+        // freeze the transaction if it is a staking transaction
+        if txn.kind == TxKind::Stake {
+            let sdoc: StakeDoc = stdcode::deserialize(&txn.data)
+                .context("stake transaction must have a stake-doc data")?;
+            oself.stake_list.insert(txn.hash_nosigs(), sdoc);
         }
         // put tx in progress
         oself.tx_in_progress.insert(txn.hash_nosigs(), txn);
@@ -238,6 +270,12 @@ impl WalletData {
             confirmed_height,
             outputs,
         })
+    }
+
+    /// Filter out everything in the stake list that's too old
+    pub fn retain_valid_stakes(&mut self, current_height: u64) {
+        let current_epoch = current_height / STAKE_EPOCH;
+        self.stake_list.retain(|_, v| v.e_post_end >= current_epoch);
     }
 }
 

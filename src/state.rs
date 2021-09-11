@@ -83,7 +83,10 @@ impl AppState {
                 let unspent: &BTreeMap<CoinID, CoinDataHeight> = wd.unspent_coins();
                 let total_micromel = unspent
                     .iter()
-                    .filter(|(_, cdh)| cdh.coin_data.denom == Denom::Mel)
+                    .filter(|(_, cdh)| {
+                        cdh.coin_data.denom == Denom::Mel
+                            && cdh.coin_data.covhash == wd.my_covenant().hash()
+                    })
                     .map(|(_, cdh)| cdh.coin_data.value)
                     .sum();
                 let mut detailed_balance = BTreeMap::new();
@@ -91,7 +94,9 @@ impl AppState {
                     let entry = detailed_balance
                         .entry(hex::encode(&cdh.coin_data.denom.to_bytes()))
                         .or_default();
-                    *entry += cdh.coin_data.value;
+                    if cdh.coin_data.covhash == wd.my_covenant().hash() {
+                        *entry += cdh.coin_data.value;
+                    }
                 }
                 let staked_microsym = wd
                     .stake_list()

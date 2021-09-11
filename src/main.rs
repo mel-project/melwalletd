@@ -13,7 +13,8 @@ use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
 use themelio_stf::{
-    CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash, TxKind, MICRO_CONVERTER,
+    melvm::Covenant, CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash,
+    TxKind, MICRO_CONVERTER,
 };
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
@@ -321,12 +322,16 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
     #[derive(Deserialize)]
     struct Req {
-        inputs: Option<Vec<CoinID>>,
+        #[serde(default)]
+        inputs: Vec<CoinID>,
         outputs: Vec<CoinData>,
         signing_key: Option<String>,
         kind: Option<TxKind>,
         data: Option<String>,
-        nobalance: Option<Vec<Denom>>,
+        #[serde(default)]
+        scripts: Vec<Covenant>,
+        #[serde(default)]
+        nobalance: Vec<Denom>,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
@@ -355,8 +360,8 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     };
     let prepared_tx = smol::unblock(move || {
         wallet.read().prepare(
-            request.inputs.unwrap_or_default(),
-            request.outputs,
+            request.inputs.clone(),
+            request.outputs.clone(),
             fee_multiplier,
             |mut tx: Transaction| {
                 if let Some(kind) = kind {
@@ -365,12 +370,13 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
                 if let Some(data) = data.clone() {
                     tx.data = data
                 }
+                tx.scripts.extend_from_slice(&request.scripts);
                 for i in 0..tx.inputs.len() {
                     tx = signing_key.sign_tx(tx, i)?;
                 }
                 Ok(tx)
             },
-            request.nobalance.unwrap_or_default(),
+            request.nobalance.clone(),
         )
     })
     .await

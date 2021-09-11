@@ -129,7 +129,6 @@ impl WalletData {
                 .context("mandatory input not found in wallet")?;
             mandatory_inputs.insert(input, coindata.clone());
         }
-        dbg!(outputs.clone());
         let gen_transaction = |fee| {
             // find coins that might match
             let mut txn = Transaction {
@@ -161,12 +160,14 @@ impl WalletData {
 
             // then we add random other inputs until enough.
             // we filter out everything that is in the stake list.
-            for (coin, data) in self.unspent_coins.iter().filter(|(cid, data)| {
-                !nobalance.contains(&data.coin_data.denom)
-                    && !(self.stake_list.contains_key(&cid.txhash) && cid.index == 0)
-            }) {
-                if mandatory_inputs.contains_key(coin) {
-                    // we should not add a mandatory input back in
+            for (coin, data) in self.unspent_coins.iter() {
+                // blacklist of coins
+                if mandatory_inputs.contains_key(coin)
+                    || nobalance.contains(&data.coin_data.denom)
+                    || self.stake_list.contains_key(&coin.txhash) && coin.index == 0
+                    || data.coin_data.covhash != self.my_covenant().hash()
+                {
+                    // do not consider it
                     continue;
                 }
                 let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(0);
@@ -192,31 +193,37 @@ impl WalletData {
                             })
                         }
                     } else {
-                        return Direction::High(None);
+                        return Direction::High(Err(anyhow::anyhow!(
+                            "not enough money for denomination {}",
+                            cointype
+                        )));
                     }
                 }
                 change
             };
             txn.outputs.extend(change.into_iter());
             if !txn.is_well_formed() {
-                log::warn!("NOT WELL FORMED");
-                return Direction::High(None);
+                return Direction::High(Err(anyhow::anyhow!("transaction not well-formed")));
             }
             let signed_txn = sign(txn);
-            if let Ok(signed_txn) = signed_txn {
-                if signed_txn.fee <= signed_txn.base_fee(fee_multiplier, 0) * 21 / 20 {
-                    Direction::Low(Some(signed_txn))
-                } else {
-                    Direction::High(Some(signed_txn))
+            match signed_txn {
+                Ok(signed_txn) => {
+                    if signed_txn.fee <= signed_txn.base_fee(fee_multiplier, 0) * 21 / 20 {
+                        Direction::Low(Ok(signed_txn))
+                    } else {
+                        Direction::High(Ok(signed_txn))
+                    }
                 }
-            } else {
-                Direction::High(None)
+                Err(err) => Direction::Low(Err(err)),
             }
         };
-        let (_, (_, val)) =
-            binary_search::binary_search((0u128, None), (MAX_COINVAL, None), gen_transaction);
+        let (_, (_, val)) = binary_search::binary_search(
+            (0u128, Err(anyhow::anyhow!("nothing"))),
+            (MAX_COINVAL, Err(anyhow::anyhow!("nothing"))),
+            gen_transaction,
+        );
         log::debug!("prepared TX with fee {:?}", val.as_ref().map(|v| v.fee));
-        val.context("not enough money")
+        val.context("preparation failed")
     }
 
     /// Informs the state of a sent transaction. This transaction must only spend coins that are in the wallet. Such a transaction can be created using [WalletData::prepare].

@@ -75,6 +75,19 @@ impl WalletData {
         &self.tx_in_progress
     }
 
+    /// Forcibly reverts an in-progress transaction
+    pub fn force_revert_tx(&mut self, txhash: TxHash) {
+        if let Some(tx) = self.tx_in_progress.remove(&txhash) {
+            // un-spend all the coins spent by this tx
+            for input in tx.inputs.iter() {
+                if let Some(coin) = self.spent_coins.remove(input) {
+                    self.unspent_coins.insert(*input, coin);
+                }
+            }
+            self.stake_list.remove(&txhash);
+        }
+    }
+
     /// Inserts a coin into the data, returning whether or not the coin already exists.
     pub fn insert_coin(&mut self, coin_id: CoinID, coin_data_height: CoinDataHeight) -> bool {
         self.commit_confirmed(coin_id.txhash, coin_data_height.height);

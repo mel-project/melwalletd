@@ -13,8 +13,9 @@ use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
 use themelio_stf::{
-    melvm::Covenant, CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash,
-    TxKind, MICRO_CONVERTER,
+    melvm::{Covenant, CovenantEnv},
+    CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash, TxKind,
+    MICRO_CONVERTER,
 };
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
@@ -120,6 +121,8 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/send-tx").post(send_tx);
         app.at("/wallets/:name/send-faucet").post(send_faucet);
         app.at("/wallets/:name/transactions/:txhash").get(get_tx);
+        app.at("/wallets/:name/transactions/:txhash")
+            .delete(force_revert_tx);
         app.listen(args.listen).await?;
         Ok(())
     })
@@ -397,6 +400,19 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     // we mark the TX as sent in this thread. confirmer will send it off later.
     wallet.write().commit_sent(tx.clone()).map_err(to_badreq)?;
     Ok(Body::from_json(&tx.hash_nosigs())?)
+}
+
+async fn force_revert_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let txhash: TxHash = TxHash(req.param("txhash")?.parse().map_err(to_badreq)?);
+    let wallet = req
+        .state()
+        .multi()
+        .get_wallet(&wallet_name)
+        .map_err(to_badreq)?;
+    wallet.write().force_revert_tx(txhash);
+    Ok("".into())
 }
 
 async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {

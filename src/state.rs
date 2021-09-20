@@ -8,6 +8,7 @@ use std::{
 use crate::{
     multi::MultiWallet,
     secrets::{EncryptedSK, PersistentSecret, SecretStore},
+    block_store::TrustedBlockStore,
     signer::Signer,
     to_badgateway,
     walletdata::WalletData,
@@ -17,7 +18,7 @@ use anyhow::Context;
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use themelio_nodeprot::ValClient;
+use themelio_nodeprot::{ValClient, PersistTrustedBlock};
 use themelio_stf::{
     melvm::{Address, Covenant},
     CoinDataHeight, CoinID, Denom, NetID, Transaction, TxHash,
@@ -30,6 +31,7 @@ pub struct AppState {
     clients: HashMap<NetID, ValClient>,
     unlocked_signers: DashMap<String, Arc<dyn Signer>>,
     secrets: SecretStore,
+    trusted_blocks: TrustedBlockStore,
     _confirm_task: smol::Task<()>,
 }
 
@@ -38,23 +40,35 @@ impl AppState {
     pub fn new(
         multi: MultiWallet,
         secrets: SecretStore,
+        trusted_blocks: TrustedBlockStore,
         mainnet_addr: SocketAddr,
         testnet_addr: SocketAddr,
     ) -> Self {
         let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
         let testnet_client = ValClient::new(NetID::Testnet, testnet_addr);
-        mainnet_client.trust(
-            413096,
-            "7ecd81b20ab0ce678b9de7078b833f41d23856df5323a93abd409149b23a4bcd"
-                .parse()
-                .unwrap(),
-        );
-        testnet_client.trust(
-            400167,
-            "bf8a7194dcef69eb3a0c9a3664d58156f68ca4092306ce04eda08bfe794db940"
-                .parse()
-                .unwrap(),
-        );
+        // Check if there is a persisted trusted block, if not use the hardcoded backup
+        if let Some((height, header)) = trusted_blocks.get(NetID::Mainnet) {
+            mainnet_client.trust(height, header);
+        } else {
+            let default_height = 413096;
+            let default_hash =
+                "7ecd81b20ab0ce678b9de7078b833f41d23856df5323a93abd409149b23a4bcd".parse().unwrap();
+
+            mainnet_client.trust(default_height, default_hash);
+            trusted_blocks.set(NetID::Mainnet, default_height, default_hash);
+        }
+
+        if let Some((height, header)) = trusted_blocks.get(NetID::Testnet) {
+            testnet_client.trust(height, header);
+        } else {
+            let default_height = 400167;
+            let default_hash =
+                "bf8a7194dcef69eb3a0c9a3664d58156f68ca4092306ce04eda08bfe794db940".parse().unwrap();
+
+            testnet_client.trust(default_height, default_hash);
+            trusted_blocks.set(NetID::Testnet, default_height, default_hash);
+        }
+
         let clients: HashMap<NetID, ValClient> = vec![
             (NetID::Mainnet, mainnet_client),
             (NetID::Testnet, testnet_client),
@@ -69,6 +83,7 @@ impl AppState {
             clients,
             unlocked_signers: Default::default(),
             secrets,
+            trusted_blocks,
             _confirm_task,
         }
     }

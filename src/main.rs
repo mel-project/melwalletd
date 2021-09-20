@@ -3,6 +3,7 @@ mod secrets;
 mod signer;
 mod state;
 mod walletdata;
+mod block_store;
 use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
@@ -21,7 +22,11 @@ use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
 use tmelcrypt::Ed25519SK;
 
-use crate::{secrets::SecretStore, signer::Signer};
+use crate::{
+    secrets::SecretStore,
+    block_store::TrustedBlockStore,
+    signer::Signer
+};
 
 #[derive(StructOpt)]
 struct Args {
@@ -78,13 +83,20 @@ fn main() -> anyhow::Result<()> {
             "opened wallet directory: {:?}",
             multiwallet.list().collect::<Vec<_>>()
         );
+
         let mut secret_path = args.wallet_dir.clone();
         secret_path.push(".secrets.json");
+
+        let mut blockstore_path = args.wallet_dir.clone();
+        blockstore_path.push(".trustedblocks.json");
+
         let secrets = SecretStore::open(&secret_path)?;
+        let trusted_blocks = TrustedBlockStore::open(&blockstore_path)?;
 
         let state = AppState::new(
             multiwallet,
             secrets,
+            trusted_blocks,
             args.mainnet_connect,
             args.testnet_connect,
         );

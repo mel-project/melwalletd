@@ -44,8 +44,8 @@ impl AppState {
         let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
         let testnet_client = ValClient::new(NetID::Testnet, testnet_addr);
         mainnet_client.trust(
-            14146,
-            "50f5a41c6e996d36bc05b1272a59c8adb3fe3f98de70965abd2eed0c115d2108"
+            413096,
+            "7ecd81b20ab0ce678b9de7078b833f41d23856df5323a93abd409149b23a4bcd"
                 .parse()
                 .unwrap(),
         );

@@ -3,7 +3,6 @@ mod secrets;
 mod signer;
 mod state;
 mod walletdata;
-mod block_store;
 use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
@@ -18,13 +17,13 @@ use themelio_stf::{
     CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash, TxKind,
     MICRO_CONVERTER,
 };
+use themelio_nodeprot::{BlockHeight, InMemoryTrustStore, TrustedBlock, TrustedBlockPersister};
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
-use tmelcrypt::Ed25519SK;
+use tmelcrypt::{Ed25519SK, HashVal};
 
 use crate::{
     secrets::SecretStore,
-    block_store::TrustedBlockStore,
     signer::Signer
 };
 
@@ -41,6 +40,16 @@ struct Args {
 
     #[structopt(long, default_value = "94.237.109.44:11814")]
     testnet_connect: SocketAddr,
+
+    #[structopt(
+        long,
+        default_value = "413096:7ecd81b20ab0ce678b9de7078b833f41d23856df5323a93abd409149b23a4bcd")]
+    mainnet_trusted_block: TrustedBlock,
+
+    #[structopt(
+        long,
+        default_value = "400167:bf8a7194dcef69eb3a0c9a3664d58156f68ca4092306ce04eda08bfe794db940")]
+    testnet_trusted_block: TrustedBlock,
 }
 
 // If "MELWALLETD_AUTH_TOKEN" environment variable is set, check that every HTTP request has X-Melwalletd-Auth-Token set to that string
@@ -84,14 +93,21 @@ fn main() -> anyhow::Result<()> {
             multiwallet.list().collect::<Vec<_>>()
         );
 
-        let mut secret_path = args.wallet_dir.clone();
+      let mut secret_path = args.wallet_dir.clone();
         secret_path.push(".secrets.json");
 
         let mut blockstore_path = args.wallet_dir.clone();
         blockstore_path.push(".trustedblocks.json");
 
         let secrets = SecretStore::open(&secret_path)?;
-        let trusted_blocks = TrustedBlockStore::open(&blockstore_path)?;
+        let trusted_blocks = InMemoryTrustStore::open(&blockstore_path)?;
+
+        // Set defaults/user-defined if greater than the persisted trust
+        let TrustedBlock{height, header_hash} = args.mainnet_trusted_block;
+        trusted_blocks.set_highest(NetID::Mainnet, height, header_hash);
+
+        let TrustedBlock{height, header_hash} = args.testnet_trusted_block;
+        trusted_blocks.set_highest(NetID::Testnet, height, header_hash);
 
         let state = AppState::new(
             multiwallet,

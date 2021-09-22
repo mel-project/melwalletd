@@ -17,7 +17,7 @@ use themelio_stf::{
     CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash, TxKind,
     MICRO_CONVERTER,
 };
-use themelio_nodeprot::{BlockHeight, InMemoryTrustStore, TrustedBlock, TrustedBlockPersister};
+use themelio_nodeprot::{BlockHeight, InMemoryTrustStore, TrustedBlock, TrustStore};
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
 use tmelcrypt::{Ed25519SK, HashVal};
@@ -96,16 +96,12 @@ fn main() -> anyhow::Result<()> {
       let mut secret_path = args.wallet_dir.clone();
         secret_path.push(".secrets.json");
 
-        let mut blockstore_path = args.wallet_dir.clone();
-        blockstore_path.push(".trustedblocks.json");
-
         let secrets = SecretStore::open(&secret_path)?;
-        let trusted_blocks = InMemoryTrustStore::open(&blockstore_path)?;
+        let trusted_blocks = InMemoryTrustStore::new();
 
-        // Set defaults/user-defined if greater than the persisted trust
+        // Set trusted blocks from args if provided
         let TrustedBlock{height, header_hash} = args.mainnet_trusted_block;
         trusted_blocks.set(NetID::Mainnet, height, header_hash);
-
         let TrustedBlock{height, header_hash} = args.testnet_trusted_block;
         trusted_blocks.set(NetID::Testnet, height, header_hash);
 

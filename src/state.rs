@@ -42,8 +42,8 @@ impl AppState {
         mainnet_addr: SocketAddr,
         testnet_addr: SocketAddr,
     ) -> Self {
-        let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr, trusted_blocks.clone());
-        let testnet_client = ValClient::new(NetID::Testnet, testnet_addr, trusted_blocks);
+        let mainnet_client = ValClient::new_with_truststore(NetID::Mainnet, mainnet_addr, trusted_blocks.clone());
+        let testnet_client = ValClient::new_with_truststore(NetID::Testnet, testnet_addr, trusted_blocks);
 
         let clients: HashMap<NetID, ValClient> = vec![
             (NetID::Mainnet, mainnet_client),

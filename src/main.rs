@@ -104,10 +104,10 @@ fn main() -> anyhow::Result<()> {
 
         // Set defaults/user-defined if greater than the persisted trust
         let TrustedBlock{height, header_hash} = args.mainnet_trusted_block;
-        trusted_blocks.set_highest(NetID::Mainnet, height, header_hash);
+        trusted_blocks.set(NetID::Mainnet, height, header_hash);
 
         let TrustedBlock{height, header_hash} = args.testnet_trusted_block;
-        trusted_blocks.set_highest(NetID::Testnet, height, header_hash);
+        trusted_blocks.set(NetID::Testnet, height, header_hash);
 
         let state = AppState::new(
             multiwallet,

@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use themelio_nodeprot::{ValClient, InMemoryTrustStore};
 use themelio_stf::{
     melvm::{Address, Covenant},
-    CoinDataHeight, CoinID, Denom, NetID, Transaction, TxHash,
+    CoinDataHeight, CoinID, Denom, NetID, Transaction, TxHash, CoinValue,
 };
 use tmelcrypt::Ed25519SK;
 
@@ -78,7 +78,7 @@ impl AppState {
                             && cdh.coin_data.covhash == wd.my_covenant().hash()
                     })
                     .map(|(_, cdh)| cdh.coin_data.value)
-                    .sum();
+                    .fold(CoinValue(0), |a,b| a+b);
                 let mut detailed_balance = BTreeMap::new();
                 for (_, cdh) in unspent.iter() {
                     let entry = detailed_balance
@@ -91,8 +91,8 @@ impl AppState {
                 let staked_microsym = wd
                     .stake_list()
                     .values()
-                    .map(|v| v.syms_staked)
-                    .sum::<u128>();
+                    .map(|v| v.syms_staked )
+                    .fold(CoinValue(0), |a,b| a+b);
                 let locked = !self.unlocked_signers.contains_key(&name);
                 (
                     name,
@@ -198,9 +198,9 @@ impl AppState {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletSummary {
-    pub total_micromel: u128,
-    pub detailed_balance: BTreeMap<String, u128>,
-    pub staked_microsym: u128,
+    pub total_micromel: CoinValue,
+    pub detailed_balance: BTreeMap<String, CoinValue>,
+    pub staked_microsym: CoinValue,
     pub network: NetID,
     #[serde(with = "stdcode::asstr")]
     pub address: Address,

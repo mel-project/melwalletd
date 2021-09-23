@@ -5,6 +5,7 @@ use binary_search::Direction;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use themelio_stf::{
+    BlockHeight, CoinValue,
     melvm::Covenant, CoinData, CoinDataHeight, CoinID, Denom, NetID, StakeDoc, Transaction, TxHash,
     TxKind, MAX_COINVAL, STAKE_EPOCH,
 };
@@ -19,7 +20,7 @@ pub struct WalletData {
     #[serde_as(as = "Vec<(_, _)>")]
     spent_coins: BTreeMap<CoinID, CoinDataHeight>,
     tx_in_progress: BTreeMap<TxHash, Transaction>,
-    tx_confirmed: BTreeMap<TxHash, (Transaction, u64)>,
+    tx_confirmed: BTreeMap<TxHash, (Transaction, BlockHeight)>,
     #[serde(default)]
     stake_list: BTreeMap<TxHash, StakeDoc>,
     my_covenant: Covenant,
@@ -157,11 +158,11 @@ impl WalletData {
             // compute output sum
             let mut output_sum = txn.total_outputs();
 
-            let mut input_sum: BTreeMap<Denom, u128> = BTreeMap::new();
+            let mut input_sum: BTreeMap<Denom, CoinValue> = BTreeMap::new();
             // first we add the "mandatory" inputs
             for (coin, data) in mandatory_inputs.iter() {
                 txn.inputs.push(*coin);
-                let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(0);
+                let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(CoinValue(0));
                 input_sum.insert(data.coin_data.denom, existing_val + data.coin_data.value);
             }
 
@@ -183,8 +184,8 @@ impl WalletData {
                     // do not consider it
                     continue;
                 }
-                let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(0);
-                if existing_val < output_sum.get(&data.coin_data.denom).cloned().unwrap_or(0) {
+                let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(CoinValue(0));
+                if existing_val < output_sum.get(&data.coin_data.denom).cloned().unwrap_or(CoinValue(0)) {
                     txn.inputs.push(*coin);
                     input_sum.insert(data.coin_data.denom, existing_val + data.coin_data.value);
                 }
@@ -194,9 +195,9 @@ impl WalletData {
             let change = {
                 let mut change = Vec::new();
                 for (cointype, sum) in output_sum.iter() {
-                    let difference = input_sum.get(cointype).unwrap_or(&0).checked_sub(*sum);
+                    let difference = input_sum.get(cointype).unwrap_or(&CoinValue(0)).checked_sub(*sum);
                     if let Some(difference) = difference {
-                        if difference > 0 || *cointype == Denom::Mel {
+                        if difference > CoinValue(0) || *cointype == Denom::Mel {
                             // We *always* make at least one change output
                             change.push(CoinData {
                                 covhash: self.my_covenant.hash(),
@@ -231,7 +232,7 @@ impl WalletData {
             }
         };
         let (_, (_, val)) = binary_search::binary_search(
-            (0u128, Err(anyhow::anyhow!("nothing"))),
+            (CoinValue(0), Err(anyhow::anyhow!("nothing"))),
             (MAX_COINVAL, Err(anyhow::anyhow!("nothing"))),
             gen_transaction,
         );
@@ -281,7 +282,7 @@ impl WalletData {
     }
 
     /// Informs the state of a confirmed transaction, based on its txhash. This will move the transaction from the in-progress to confirmed.
-    pub fn commit_confirmed(&mut self, txhash: TxHash, height: u64) {
+    pub fn commit_confirmed(&mut self, txhash: TxHash, height: BlockHeight) {
         if let Some(tx) = self.tx_in_progress.remove(&txhash) {
             self.tx_confirmed.insert(txhash, (tx, height));
         }
@@ -319,8 +320,8 @@ impl WalletData {
     }
 
     /// Filter out everything in the stake list that's too old
-    pub fn retain_valid_stakes(&mut self, current_height: u64) {
-        let current_epoch = current_height / STAKE_EPOCH;
+    pub fn retain_valid_stakes(&mut self, current_height: BlockHeight) {
+        let current_epoch = current_height.0 / STAKE_EPOCH;
         self.stake_list.retain(|_, v| v.e_post_end >= current_epoch);
     }
 }
@@ -328,7 +329,7 @@ impl WalletData {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TransactionStatus {
     pub raw: Transaction,
-    pub confirmed_height: Option<u64>,
+    pub confirmed_height: Option<BlockHeight>,
     pub outputs: Vec<AnnCoinID>,
 }
 

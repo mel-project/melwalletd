@@ -12,10 +12,10 @@ use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
+use themelio_nodeprot::{InMemoryTrustStore, TrustStore, TrustedHeight};
 use themelio_stf::{
-    melvm::{Covenant, CovenantEnv},
-    CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash, TxKind,
-    MICRO_CONVERTER,
+    melvm::Covenant, CoinData, CoinID, CoinValue, Denom, NetID, PoolKey, StakeDoc, Transaction,
+    TxHash, TxKind, MICRO_CONVERTER,
 };
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
@@ -36,6 +36,18 @@ struct Args {
 
     #[structopt(long, default_value = "94.237.109.44:11814")]
     testnet_connect: SocketAddr,
+
+    #[structopt(
+        long,
+        default_value = "413096:7ecd81b20ab0ce678b9de7078b833f41d23856df5323a93abd409149b23a4bcd"
+    )]
+    mainnet_trusted_block: TrustedHeight,
+
+    #[structopt(
+        long,
+        default_value = "400167:bf8a7194dcef69eb3a0c9a3664d58156f68ca4092306ce04eda08bfe794db940"
+    )]
+    testnet_trusted_block: TrustedHeight,
 }
 
 // If "MELWALLETD_AUTH_TOKEN" environment variable is set, check that every HTTP request has X-Melwalletd-Auth-Token set to that string
@@ -78,13 +90,24 @@ fn main() -> anyhow::Result<()> {
             "opened wallet directory: {:?}",
             multiwallet.list().collect::<Vec<_>>()
         );
+
         let mut secret_path = args.wallet_dir.clone();
         secret_path.push(".secrets.json");
+
         let secrets = SecretStore::open(&secret_path)?;
+        let trusted_blocks = InMemoryTrustStore::new();
+
+        // Set trusted blocks from args if provided
+        //let TrustedHeight{height, header_hash} = args.mainnet_trusted_block;
+        let trusted_height = args.mainnet_trusted_block;
+        trusted_blocks.set(NetID::Mainnet, trusted_height);
+        let trusted_height = args.testnet_trusted_block;
+        trusted_blocks.set(NetID::Testnet, trusted_height);
 
         let state = AppState::new(
             multiwallet,
             secrets,
+            trusted_blocks,
             args.mainnet_connect,
             args.testnet_connect,
         );
@@ -447,12 +470,12 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         inputs: vec![],
         outputs: vec![CoinData {
             covhash: wallet.read().my_covenant().hash(),
-            value: 1001 * MICRO_CONVERTER,
+            value: CoinValue(1001 * MICRO_CONVERTER),
             denom: Denom::Mel,
             additional_data: vec![],
         }],
         data: (0..32).map(|_| fastrand::u8(0..=255)).collect(),
-        fee: MICRO_CONVERTER,
+        fee: CoinValue(MICRO_CONVERTER),
         scripts: vec![],
         sigs: vec![],
     };

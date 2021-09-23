@@ -7,8 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-themelio-stf= "0.5.5"
-themelio-nodeprot= "0.4.1"
+themelio-stf= "0.6.2"
+#themelio-stf= { path = "../themelio-stf" }
+themelio-nodeprot= "0.5.0"
+#themelio-nodeprot= { path = "../themelio-nodeprot" }
 http-types= "2.12.0"
 tmelcrypt = "0.1.0"
 smolscale= "0.3.12"
@@ -21,7 +23,7 @@ serde_json= { version = "1.0.67", features = ["arbitrary_precision"] }
 dashmap= "4.0.2"
 structopt= "0.3.23"
 stdcode= "0.1.2"
-tide= "0.16.0"
+tide= "0.16.0" 
 tracing-subscriber = "0.2.20"
 log= "0.4.14"
 tracing= "0.1.26"

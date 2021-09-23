@@ -1830,6 +1830,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
+name = "ordered-float"
+version = "2.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97c9d06878b3a851e8026ef94bf7fef9ba93062cd412601da4d9cf369b1cc62d"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "parking"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2784,9 +2793,9 @@ dependencies = [
 
 [[package]]
 name = "themelio-nodeprot"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d21cb48b9cf50e2fece4dd49bbacb561112eadd95fc29eb069aeb54d9a02c64"
+checksum = "d9f0e25644049e1aebb339ef70d8180ef27eec67d03fd174e7a90b2b74ac7eaa"
 dependencies = [
  "cached",
  "hex",
@@ -2798,14 +2807,15 @@ dependencies = [
  "smolscale",
  "stdcode",
  "themelio-stf",
+ "thiserror",
  "tmelcrypt",
 ]
 
 [[package]]
 name = "themelio-stf"
-version = "0.5.5"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31c47a72b8aea9ffb1eda720fec149eb23665a41470705a97baa0a467ee709ef"
+checksum = "62b15703bed1fd829f0a165beb39f46d283e472be0529587ecb8ba30ae1be3d6"
 dependencies = [
  "arbitrary",
  "dashmap",
@@ -2822,6 +2832,7 @@ dependencies = [
  "num",
  "num_enum",
  "once_cell",
+ "ordered-float",
  "parking_lot",
  "rayon",
  "rustc-hash",

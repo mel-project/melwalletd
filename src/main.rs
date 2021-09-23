@@ -12,21 +12,16 @@ use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
+use themelio_nodeprot::{InMemoryTrustStore, TrustStore, TrustedHeight};
 use themelio_stf::{
-    CoinValue,
-    melvm::{Covenant, CovenantEnv},
-    CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash, TxKind,
-    MICRO_CONVERTER,
+    melvm::Covenant, CoinData, CoinID, CoinValue, Denom, NetID, PoolKey, StakeDoc, Transaction,
+    TxHash, TxKind, MICRO_CONVERTER,
 };
-use themelio_nodeprot::{InMemoryTrustStore, TrustedHeight, TrustStore};
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
-use tmelcrypt::{Ed25519SK, HashVal};
+use tmelcrypt::Ed25519SK;
 
-use crate::{
-    secrets::SecretStore,
-    signer::Signer
-};
+use crate::{secrets::SecretStore, signer::Signer};
 
 #[derive(StructOpt)]
 struct Args {
@@ -44,12 +39,14 @@ struct Args {
 
     #[structopt(
         long,
-        default_value = "413096:7ecd81b20ab0ce678b9de7078b833f41d23856df5323a93abd409149b23a4bcd")]
+        default_value = "413096:7ecd81b20ab0ce678b9de7078b833f41d23856df5323a93abd409149b23a4bcd"
+    )]
     mainnet_trusted_block: TrustedHeight,
 
     #[structopt(
         long,
-        default_value = "400167:bf8a7194dcef69eb3a0c9a3664d58156f68ca4092306ce04eda08bfe794db940")]
+        default_value = "400167:bf8a7194dcef69eb3a0c9a3664d58156f68ca4092306ce04eda08bfe794db940"
+    )]
     testnet_trusted_block: TrustedHeight,
 }
 
@@ -94,7 +91,7 @@ fn main() -> anyhow::Result<()> {
             multiwallet.list().collect::<Vec<_>>()
         );
 
-      let mut secret_path = args.wallet_dir.clone();
+        let mut secret_path = args.wallet_dir.clone();
         secret_path.push(".secrets.json");
 
         let secrets = SecretStore::open(&secret_path)?;

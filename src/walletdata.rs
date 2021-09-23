@@ -5,9 +5,8 @@ use binary_search::Direction;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use themelio_stf::{
-    BlockHeight, CoinValue,
-    melvm::Covenant, CoinData, CoinDataHeight, CoinID, Denom, NetID, StakeDoc, Transaction, TxHash,
-    TxKind, MAX_COINVAL, STAKE_EPOCH,
+    melvm::Covenant, BlockHeight, CoinData, CoinDataHeight, CoinID, CoinValue, Denom, NetID,
+    StakeDoc, Transaction, TxHash, TxKind, MAX_COINVAL, STAKE_EPOCH,
 };
 
 /// Cloneable in-memory data that can be persisted.
@@ -143,7 +142,8 @@ impl WalletData {
                 .context("mandatory input not found in wallet")?;
             mandatory_inputs.insert(input, coindata.clone());
         }
-        let gen_transaction = |fee| {
+        let gen_transaction = |fee: u128| {
+            let fee = CoinValue(fee);
             // find coins that might match
             let mut txn = Transaction {
                 kind: TxKind::Normal,
@@ -162,7 +162,10 @@ impl WalletData {
             // first we add the "mandatory" inputs
             for (coin, data) in mandatory_inputs.iter() {
                 txn.inputs.push(*coin);
-                let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(CoinValue(0));
+                let existing_val = input_sum
+                    .get(&data.coin_data.denom)
+                    .cloned()
+                    .unwrap_or(CoinValue(0));
                 input_sum.insert(data.coin_data.denom, existing_val + data.coin_data.value);
             }
 
@@ -184,8 +187,16 @@ impl WalletData {
                     // do not consider it
                     continue;
                 }
-                let existing_val = input_sum.get(&data.coin_data.denom).cloned().unwrap_or(CoinValue(0));
-                if existing_val < output_sum.get(&data.coin_data.denom).cloned().unwrap_or(CoinValue(0)) {
+                let existing_val = input_sum
+                    .get(&data.coin_data.denom)
+                    .cloned()
+                    .unwrap_or(CoinValue(0));
+                if existing_val
+                    < output_sum
+                        .get(&data.coin_data.denom)
+                        .cloned()
+                        .unwrap_or(CoinValue(0))
+                {
                     txn.inputs.push(*coin);
                     input_sum.insert(data.coin_data.denom, existing_val + data.coin_data.value);
                 }
@@ -195,7 +206,12 @@ impl WalletData {
             let change = {
                 let mut change = Vec::new();
                 for (cointype, sum) in output_sum.iter() {
-                    let difference = input_sum.get(cointype).unwrap_or(&CoinValue(0)).checked_sub(*sum);
+                    let difference = input_sum
+                        .get(cointype)
+                        .unwrap_or(&CoinValue(0))
+                        .0
+                        .checked_sub(sum.0)
+                        .map(CoinValue);
                     if let Some(difference) = difference {
                         if difference > CoinValue(0) || *cointype == Denom::Mel {
                             // We *always* make at least one change output
@@ -232,8 +248,8 @@ impl WalletData {
             }
         };
         let (_, (_, val)) = binary_search::binary_search(
-            (CoinValue(0), Err(anyhow::anyhow!("nothing"))),
-            (MAX_COINVAL, Err(anyhow::anyhow!("nothing"))),
+            (0, Err(anyhow::anyhow!("nothing"))),
+            (MAX_COINVAL.0, Err(anyhow::anyhow!("nothing"))),
             gen_transaction,
         );
         log::debug!("prepared TX with fee {:?}", val.as_ref().map(|v| v.fee));

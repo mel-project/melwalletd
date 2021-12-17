@@ -13,9 +13,8 @@ use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
 use themelio_stf::{
-    melvm::{Covenant, CovenantEnv},
-    CoinData, CoinID, Denom, NetID, PoolKey, StakeDoc, Transaction, TxHash, TxKind,
-    MICRO_CONVERTER,
+    melvm::Covenant, CoinData, CoinID, CoinValue, Denom, NetID, PoolKey, StakeDoc, Transaction,
+    TxHash, TxKind, MICRO_CONVERTER,
 };
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
@@ -447,12 +446,12 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         inputs: vec![],
         outputs: vec![CoinData {
             covhash: wallet.read().my_covenant().hash(),
-            value: 1001 * MICRO_CONVERTER,
+            value: CoinValue::from_millions(1001u64),
             denom: Denom::Mel,
             additional_data: vec![],
         }],
         data: (0..32).map(|_| fastrand::u8(0..=255)).collect(),
-        fee: MICRO_CONVERTER,
+        fee: CoinValue::from_millions(1001u64),
         scripts: vec![],
         sigs: vec![],
     };

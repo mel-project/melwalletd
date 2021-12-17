@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use themelio_nodeprot::ValClient;
 use themelio_stf::{
     melvm::{Address, Covenant},
-    CoinDataHeight, CoinID, Denom, NetID, Transaction, TxHash,
+    CoinDataHeight, CoinID, CoinValue, Denom, NetID, Transaction, TxHash,
 };
 use tmelcrypt::Ed25519SK;
 
@@ -43,18 +43,8 @@ impl AppState {
     ) -> Self {
         let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
         let testnet_client = ValClient::new(NetID::Testnet, testnet_addr);
-        mainnet_client.trust(
-            413096,
-            "7ecd81b20ab0ce678b9de7078b833f41d23856df5323a93abd409149b23a4bcd"
-                .parse()
-                .unwrap(),
-        );
-        testnet_client.trust(
-            400167,
-            "bf8a7194dcef69eb3a0c9a3664d58156f68ca4092306ce04eda08bfe794db940"
-                .parse()
-                .unwrap(),
-        );
+        mainnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Mainnet).unwrap());
+        testnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Testnet).unwrap());
         let clients: HashMap<NetID, ValClient> = vec![
             (NetID::Mainnet, mainnet_client),
             (NetID::Testnet, testnet_client),
@@ -98,11 +88,7 @@ impl AppState {
                         *entry += cdh.coin_data.value;
                     }
                 }
-                let staked_microsym = wd
-                    .stake_list()
-                    .values()
-                    .map(|v| v.syms_staked)
-                    .sum::<u128>();
+                let staked_microsym = wd.stake_list().values().map(|v| v.syms_staked).sum();
                 let locked = !self.unlocked_signers.contains_key(&name);
                 (
                     name,
@@ -208,9 +194,9 @@ impl AppState {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletSummary {
-    pub total_micromel: u128,
-    pub detailed_balance: BTreeMap<String, u128>,
-    pub staked_microsym: u128,
+    pub total_micromel: CoinValue,
+    pub detailed_balance: BTreeMap<String, CoinValue>,
+    pub staked_microsym: CoinValue,
     pub network: NetID,
     #[serde(with = "stdcode::asstr")]
     pub address: Address,

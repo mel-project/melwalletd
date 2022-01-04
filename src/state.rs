@@ -17,6 +17,7 @@ use anyhow::Context;
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use smol_timeout::TimeoutExt;
 use themelio_nodeprot::ValClient;
 use themelio_stf::{
     melvm::{Address, Covenant},
@@ -257,12 +258,26 @@ async fn confirm_one(
     }
     let random_tx = &in_progress[fastrand::usize(0..in_progress.len())];
     if fastrand::u8(0u8..10) == 0 || sent.lock().insert(random_tx.hash_nosigs()) {
-        if let Err(err) = snapshot.get_raw().send_tx(random_tx.clone()).await {
-            log::debug!(
-                "retransmission of {} saw error: {:?}",
-                random_tx.hash_nosigs(),
-                err
-            );
+        log::warn!("transmit tx {}", random_tx.hash_nosigs());
+        let result = snapshot
+            .get_raw()
+            .send_tx(random_tx.clone())
+            .timeout(Duration::from_secs(10))
+            .await;
+        match result {
+            Some(Err(err)) => {
+                log::warn!(
+                    "retransmission of {} saw error: {:?}",
+                    random_tx.hash_nosigs(),
+                    err
+                );
+            }
+            Some(Ok(())) => {
+                log::warn!("went through");
+            }
+            None => {
+                log::warn!("timed out!");
+            }
         }
         Ok(())
     } else {

@@ -231,6 +231,7 @@ impl WalletData {
             };
             txn.outputs.extend(change.into_iter());
             if !txn.is_well_formed() {
+                log::error!("somehow produced an obviously ill-formed TX: {:?}", txn);
                 return Direction::High(Err(anyhow::anyhow!("transaction not well-formed")));
             }
             let signed_txn = sign(txn);

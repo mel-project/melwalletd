@@ -227,14 +227,7 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let clean_coins = wallet
         .unspent_coins()
         .iter()
-        .filter(|(_, cdh)| {
-            log::debug!(
-                "checking whether {} == {}",
-                cdh.coin_data.covhash,
-                my_covhash
-            );
-            cdh.coin_data.covhash == my_covhash
-        })
+        .filter(|(_, cdh)| cdh.coin_data.covhash == my_covhash)
         .map(|(x, y)| (*x, y.clone()))
         .collect::<BTreeMap<_, _>>();
     let snap = req.state().client(wallet.network()).snapshot().await?;
@@ -246,6 +239,14 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         } else {
             log::warn!("removing coin {} not in unspent list", k);
         }
+    }
+    let supposed_count = snap.get_coin_count(my_covhash).await?;
+    if supposed_count != Some(truly_unspent.len() as u64) {
+        log::warn!(
+            "canonical coin count {:?} different from what we have ({})",
+            supposed_count,
+            truly_unspent.len()
+        )
     }
     *wallet.unspent_coins_mut() = truly_unspent;
     req.state().insert_wallet(&wallet_name, wallet);
@@ -340,7 +341,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         signing_key: Option<String>,
         kind: Option<TxKind>,
         data: Option<String>,
-        #[serde(default)]
+        #[serde(default, with = "stdcode::hexvec")]
         covenants: Vec<Vec<u8>>,
         #[serde(default)]
         nobalance: Vec<Denom>,

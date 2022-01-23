@@ -4,9 +4,10 @@ use anyhow::Context;
 use binary_search::Direction;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use themelio_stf::{
-    melvm::Covenant, BlockHeight, CoinData, CoinDataHeight, CoinID, CoinValue, Denom, NetID,
-    StakeDoc, Transaction, TxHash, TxKind, MAX_COINVAL, STAKE_EPOCH,
+use themelio_stf::melvm::{covenant_weight_from_bytes, Covenant};
+use themelio_structs::{
+    BlockHeight, CoinData, CoinDataHeight, CoinID, CoinValue, Denom, NetID, StakeDoc, Transaction,
+    TxHash, TxKind, MAX_COINVAL,
 };
 
 /// Cloneable in-memory data that can be persisted.
@@ -149,7 +150,7 @@ impl WalletData {
                 inputs: vec![],
                 outputs: outputs.clone(),
                 fee,
-                scripts: vec![self.my_covenant.clone()],
+                covenants: vec![self.my_covenant.0.clone()],
                 data: vec![],
                 sigs: vec![],
             };
@@ -237,7 +238,10 @@ impl WalletData {
             let signed_txn = sign(txn);
             match signed_txn {
                 Ok(signed_txn) => {
-                    if signed_txn.fee <= signed_txn.base_fee(fee_multiplier, 0) * 21 / 20 {
+                    if signed_txn.fee
+                        <= signed_txn.base_fee(fee_multiplier, 0, covenant_weight_from_bytes) * 21
+                            / 20
+                    {
                         Direction::Low(Ok(signed_txn))
                     } else {
                         Direction::High(Ok(signed_txn))
@@ -262,7 +266,7 @@ impl WalletData {
         if !txn.is_well_formed() {
             anyhow::bail!("not well-formed")
         }
-        let scripts = txn.script_as_map();
+        let scripts = txn.covenants_as_map();
         // move coins from spent to unspent
         for input in txn.inputs.iter().cloned() {
             let coindata = oself

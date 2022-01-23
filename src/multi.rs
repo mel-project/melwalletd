@@ -3,7 +3,8 @@ use anyhow::Context;
 use dashmap::DashMap;
 use std::path::{Path, PathBuf};
 use std::{io::prelude::*, sync::Arc};
-use themelio_stf::{melvm::Covenant, NetID};
+use themelio_stf::melvm::Covenant;
+use themelio_structs::NetID;
 
 use crate::walletdata::WalletData;
 

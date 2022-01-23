@@ -19,9 +19,9 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
 use themelio_nodeprot::ValClient;
-use themelio_stf::{
-    melvm::{Address, Covenant},
-    CoinDataHeight, CoinID, CoinValue, Denom, NetID, Transaction, TxHash,
+use themelio_stf::melvm::Covenant;
+use themelio_structs::{
+    Address, CoinDataHeight, CoinID, CoinValue, Denom, NetID, Transaction, TxHash,
 };
 use tmelcrypt::Ed25519SK;
 

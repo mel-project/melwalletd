@@ -12,9 +12,9 @@ use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
-use themelio_stf::{
-    melvm::Covenant, CoinData, CoinID, CoinValue, Denom, NetID, PoolKey, StakeDoc, Transaction,
-    TxHash, TxKind, MICRO_CONVERTER,
+use themelio_stf::{melvm::Covenant, PoolKey};
+use themelio_structs::{
+    CoinData, CoinID, CoinValue, Denom, NetID, StakeDoc, Transaction, TxHash, TxKind,
 };
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
@@ -237,7 +237,17 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         })
         .map(|(x, y)| (*x, y.clone()))
         .collect::<BTreeMap<_, _>>();
-    *wallet.unspent_coins_mut() = clean_coins;
+    let snap = req.state().client(wallet.network()).snapshot().await?;
+    let mut truly_unspent = BTreeMap::new();
+    for (k, _) in clean_coins {
+        let v = snap.get_coin(k).await?;
+        if let Some(v) = v {
+            truly_unspent.insert(k, v);
+        } else {
+            log::warn!("removing coin {} not in unspent list", k);
+        }
+    }
+    *wallet.unspent_coins_mut() = truly_unspent;
     req.state().insert_wallet(&wallet_name, wallet);
     log::info!("cleaned up coins for wallet {}", wallet_name);
     Ok("".into())
@@ -331,7 +341,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         kind: Option<TxKind>,
         data: Option<String>,
         #[serde(default)]
-        scripts: Vec<Covenant>,
+        covenants: Vec<Vec<u8>>,
         #[serde(default)]
         nobalance: Vec<Denom>,
     }
@@ -372,7 +382,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
                 if let Some(data) = data.clone() {
                     tx.data = data
                 }
-                tx.scripts.extend_from_slice(&request.scripts);
+                tx.covenants.extend_from_slice(&request.covenants);
                 for i in 0..tx.inputs.len() {
                     tx = signing_key.sign_tx(tx, i)?;
                 }
@@ -452,7 +462,7 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         }],
         data: (0..32).map(|_| fastrand::u8(0..=255)).collect(),
         fee: CoinValue::from_millions(1001u64),
-        scripts: vec![],
+        covenants: vec![],
         sigs: vec![],
     };
     // we mark the TX as sent in this thread

@@ -73,7 +73,7 @@ impl EncryptedSK {
         // now we use this secret key to encrypt the secret key
         let aead = crypto_api_chachapoly::ChachaPolyIetf::aead_cipher();
         let mut output_buf = vec![0u8; sk.0.len() + 16];
-        aead.seal_to(&mut &mut output_buf, &sk.0, &[], &encryption_key, &[0; 12])
+        aead.seal_to(&mut output_buf, &sk.0, &[], &encryption_key, &[0; 12])
             .expect("seal failed");
         Self {
             argon2id_salt: salt.to_vec(),

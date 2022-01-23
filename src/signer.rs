@@ -1,4 +1,5 @@
-use themelio_stf::{melvm::Covenant, HexBytes, Transaction};
+use themelio_stf::{melvm::Covenant, HexBytes};
+use themelio_structs::Transaction;
 use tmelcrypt::Ed25519SK;
 
 /// This trait is implemented by anything "secret key-like" that can sign a transaction. This includes secret keys, password-encumbered secret keys,
@@ -16,9 +17,9 @@ impl Signer for Ed25519SK {
         let signature = self.sign(&txn.hash_nosigs().0);
         // fill any previous signature slots with zeros
         while txn.sigs.len() <= input_idx {
-            txn.sigs.push(HexBytes(vec![]));
+            txn.sigs.push(vec![]);
         }
-        txn.sigs[input_idx] = HexBytes(signature);
+        txn.sigs[input_idx] = signature;
         Ok(txn)
     }
 

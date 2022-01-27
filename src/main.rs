@@ -224,31 +224,25 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .full;
     let my_covhash = wallet.my_covenant().hash();
     // remove all coins that we don't own
-    let clean_coins = wallet
+    let mut clean_coins = wallet
         .unspent_coins()
         .iter()
         .filter(|(_, cdh)| cdh.coin_data.covhash == my_covhash)
         .map(|(x, y)| (*x, y.clone()))
         .collect::<BTreeMap<_, _>>();
-    let snap = req.state().client(wallet.network()).snapshot().await?;
-    let mut truly_unspent = BTreeMap::new();
-    for (k, _) in clean_coins {
-        let v = snap.get_coin(k).await?;
-        if let Some(v) = v {
-            truly_unspent.insert(k, v);
-        } else {
-            log::warn!("removing coin {} not in unspent list", k);
-        }
+    if let Some(res) = req
+        .state()
+        .client(wallet.network())
+        .snapshot()
+        .await?
+        .get_coins(my_covhash)
+        .await
+        .context("cannot get coins")?
+    {
+        log::info!("received CANONICAL list with {} coins", res.len());
+        clean_coins = res;
     }
-    let supposed_count = snap.get_coin_count(my_covhash).await?;
-    if supposed_count != Some(truly_unspent.len() as u64) {
-        log::warn!(
-            "canonical coin count {:?} different from what we have ({})",
-            supposed_count,
-            truly_unspent.len()
-        )
-    }
-    *wallet.unspent_coins_mut() = truly_unspent;
+    *wallet.unspent_coins_mut() = clean_coins;
     req.state().insert_wallet(&wallet_name, wallet);
     log::info!("cleaned up coins for wallet {}", wallet_name);
     Ok("".into())

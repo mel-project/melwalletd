@@ -30,11 +30,11 @@ struct Args {
     #[structopt(long, default_value = "127.0.0.1:11773")]
     listen: SocketAddr,
 
-    #[structopt(long, default_value = "51.83.255.223:11814")]
-    mainnet_connect: SocketAddr,
+    #[structopt(long)]
+    mainnet_connect: Option<SocketAddr>,
 
-    #[structopt(long, default_value = "94.237.109.44:11814")]
-    testnet_connect: SocketAddr,
+    #[structopt(long)]
+    testnet_connect: Option<SocketAddr>,
 }
 
 // If "MELWALLETD_AUTH_TOKEN" environment variable is set, check that every HTTP request has X-Melwalletd-Auth-Token set to that string
@@ -84,8 +84,10 @@ fn main() -> anyhow::Result<()> {
         let state = AppState::new(
             multiwallet,
             secrets,
-            args.mainnet_connect,
-            args.testnet_connect,
+            args.mainnet_connect
+                .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]),
+            args.testnet_connect
+                .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Testnet)[0]),
         );
 
         let mut app = tide::with_state(Arc::new(state));

@@ -208,11 +208,11 @@ async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         Body::from_json(
             &req.state()
                 .dump_wallet(&wallet_name)
-                .ok_or_else(notfound)?
+                .ok_or_else(wallet_notfound)?
                 .summary,
         )
     } else {
-        Body::from_json(&req.state().dump_wallet(&wallet_name).ok_or_else(notfound)?)
+        Body::from_json(&req.state().dump_wallet(&wallet_name).ok_or_else(wallet_notfound)?)
     }
 }
 
@@ -222,7 +222,7 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let mut wallet = req
         .state()
         .dump_wallet(&wallet_name)
-        .ok_or_else(notfound)?
+        .ok_or_else(wallet_notfound)?
         .full;
     let my_covhash = wallet.my_covenant().hash();
     // remove all coins that we don't own
@@ -272,7 +272,7 @@ async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .get_coin(coin_id)
         .await
         .map_err(to_badgateway)?
-        .ok_or_else(notfound)?;
+        .ok_or(notfound_with(format!("coin {coin_id} not found")))?;
     smol::unblock(move || wallet.write().insert_coin(coin_id, cdh)).await;
     Ok(Body::from_string("".into()))
 }
@@ -430,7 +430,7 @@ async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .multi()
         .get_wallet(&wallet_name)
         .map_err(to_badreq)?;
-    let txstatus = wallet.read().get_tx_status(txhash).ok_or_else(notfound)?;
+    let txstatus = wallet.read().get_tx_status(txhash).ok_or(notfound_with(format!("tx {txhash} not found")))?;
     Ok(Body::from_json(&txstatus)?)
 }
 
@@ -485,6 +485,10 @@ fn to_badgateway<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -
     tide::Error::new(StatusCode::BadGateway, e)
 }
 
-fn notfound() -> tide::Error {
-    tide::Error::new(StatusCode::NotFound, anyhow::anyhow!("not found"))
+fn notfound_with(s: String) -> tide::Error {
+    tide::Error::new(StatusCode::NotFound, anyhow::anyhow!("{s}"))
+}
+
+fn wallet_notfound() -> tide::Error {
+    notfound_with("wallet not found".into())
 }

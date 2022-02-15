@@ -134,6 +134,9 @@ impl WalletData {
         sign: impl Fn(Transaction) -> anyhow::Result<Transaction>,
         nobalance: Vec<Denom>,
     ) -> anyhow::Result<Transaction> {
+        let mut nobalance = nobalance;
+        nobalance.push(Denom::NewCoin);
+        let nobalance = nobalance;
         let mut mandatory_inputs = BTreeMap::new();
         // first we add the "mandatory" inputs
         for input in inputs {

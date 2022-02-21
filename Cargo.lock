@@ -2753,9 +2753,9 @@ dependencies = [
 
 [[package]]
 name = "themelio-structs"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ec56094288746bf789fe1db4fbef70d47f7ef8b2b13c03faacf4a76937be60b"
+checksum = "075b8d8c37c2f08714b31802eedd7ae31ae523dce6a18cdc18ee41fd4c7f60ff"
 dependencies = [
  "arbitrary",
  "derivative",

@@ -212,7 +212,11 @@ async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
                 .summary,
         )
     } else {
-        Body::from_json(&req.state().dump_wallet(&wallet_name).ok_or_else(wallet_notfound)?)
+        Body::from_json(
+            &req.state()
+                .dump_wallet(&wallet_name)
+                .ok_or_else(wallet_notfound)?,
+        )
     }
 }
 
@@ -232,18 +236,23 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .filter(|(_, cdh)| cdh.coin_data.covhash == my_covhash)
         .map(|(x, y)| (*x, y.clone()))
         .collect::<BTreeMap<_, _>>();
-    if let Some(res) = req
-        .state()
-        .client(wallet.network())
-        .snapshot()
-        .await?
+    log::info!("{} clean coins", clean_coins.len());
+    let snap = req.state().client(wallet.network()).snapshot().await?;
+    if let Some(res) = snap
         .get_coins(my_covhash)
         .await
         .context("cannot get coins")?
     {
-        log::info!("received CANONICAL list with {} coins", res.len());
+        log::info!(
+            "received CANONICAL list with {} coins at height {}",
+            res.len(),
+            snap.current_header().height
+        );
         clean_coins = res;
+    } else {
+        log::info!("NO canonical list info!");
     }
+    log::info!("setting to {}", clean_coins.len());
     *wallet.unspent_coins_mut() = clean_coins;
     req.state().insert_wallet(&wallet_name, wallet);
     log::info!("cleaned up coins for wallet {}", wallet_name);
@@ -403,8 +412,18 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .multi()
         .get_wallet(&wallet_name)
         .map_err(to_badreq)?;
-    // we mark the TX as sent in this thread. confirmer will send it off later.
+    // we mark the TX as sent in this thread.
     wallet.write().commit_sent(tx.clone()).map_err(to_badreq)?;
+    let netid = wallet.read().network();
+    // then we send it off ourselves
+    req.state()
+        .client(netid)
+        .snapshot()
+        .await?
+        .get_raw()
+        .send_tx(tx.clone())
+        .await?;
+    log::info!("sent transaction with hash {}", tx.hash_nosigs());
     Ok(Body::from_json(&tx.hash_nosigs())?)
 }
 
@@ -430,7 +449,10 @@ async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .multi()
         .get_wallet(&wallet_name)
         .map_err(to_badreq)?;
-    let txstatus = wallet.read().get_tx_status(txhash).ok_or(notfound_with(format!("tx {txhash} not found")))?;
+    let txstatus = wallet
+        .read()
+        .get_tx_status(txhash)
+        .ok_or(notfound_with(format!("tx {txhash} not found")))?;
     Ok(Body::from_json(&txstatus)?)
 }
 

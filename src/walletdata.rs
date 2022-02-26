@@ -147,6 +147,7 @@ impl WalletData {
             mandatory_inputs.insert(input, coindata.clone());
         }
         let gen_transaction = |fee| {
+            log::debug!("trying with a fee of {} MEL", fee);
             // find coins that might match
             let mut txn = Transaction {
                 kind: TxKind::Normal,
@@ -234,6 +235,12 @@ impl WalletData {
                 change
             };
             txn.outputs.extend(change.into_iter());
+
+            log::debug!("candidate with {} inputs", txn.inputs.len());
+            if txn.inputs.len() > 10000 {
+                return Direction::High(Err(anyhow::anyhow!("too many inputs")));
+            }
+
             if !txn.is_well_formed() {
                 log::error!("somehow produced an obviously ill-formed TX: {:?}", txn);
                 return Direction::High(Err(anyhow::anyhow!("transaction not well-formed")));
@@ -253,9 +260,15 @@ impl WalletData {
                 Err(err) => Direction::Low(Err(err)),
             }
         };
+        let max_fee: CoinValue = self
+            .unspent_coins
+            .values()
+            .filter(|cdh| cdh.coin_data.denom == Denom::Mel)
+            .map(|d| d.coin_data.value)
+            .sum();
         let (_, (_, val)) = binary_search::binary_search(
             (0u128, Err(anyhow::anyhow!("nothing"))),
-            (MAX_COINVAL.0, Err(anyhow::anyhow!("nothing"))),
+            (max_fee.0, Err(anyhow::anyhow!("nothing"))),
             |a| gen_transaction(CoinValue(a)),
         );
         log::debug!("prepared TX with fee {:?}", val.as_ref().map(|v| v.fee));

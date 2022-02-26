@@ -67,6 +67,7 @@ impl MultiWallet {
         fpath.push(PathBuf::from(fname));
         atomicwrites::AtomicFile::new(fpath, atomicwrites::OverwriteBehavior::AllowOverwrite)
             .write(|file| file.write_all(&serde_json::to_vec_pretty(&wdata).unwrap()))?;
+        self.wallet_cache.clear();
         Ok(())
     }
 }

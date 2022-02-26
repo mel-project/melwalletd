@@ -142,13 +142,19 @@ impl AppState {
 
     /// Replaces the content of some wallet, wholesale.
     pub fn insert_wallet(&self, name: &str, dump: WalletData) {
-        let _ = self
-            .multi
-            .create_wallet(name, dump.my_covenant().clone(), dump.network());
+        if self.multi.get_wallet(name).is_err() {
+            let _ = self
+                .multi
+                .create_wallet(name, dump.my_covenant().clone(), dump.network());
+        }
         let wallet = self
             .multi
             .get_wallet(name)
             .expect("this does not make any sense");
+        log::debug!(
+            "inserting wallet (rough size {})",
+            format!("{:?}", dump).len()
+        );
         *wallet.write() = dump;
     }
 
@@ -161,6 +167,7 @@ impl AppState {
         pwd: Option<String>,
     ) -> Option<()> {
         if self.list_wallets().contains_key(name) {
+            log::debug!("skipping creation of wallets");
             return None;
         }
         let covenant = Covenant::std_ed25519_pk_new(key.to_public());
@@ -172,6 +179,7 @@ impl AppState {
                 None => PersistentSecret::Plaintext(key),
             },
         );
+        log::info!("created wallet with name {}", name);
         Some(())
     }
 
@@ -212,7 +220,7 @@ pub struct WalletDump {
 
 // task that periodically pulls random coins to try to confirm
 async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
-    let mut pacer = smol::Timer::interval(Duration::from_millis(100));
+    let mut pacer = smol::Timer::interval(Duration::from_millis(30000));
     let sent = Arc::new(Mutex::new(HashSet::new()));
     loop {
         (&mut pacer).await;
@@ -220,22 +228,17 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
         if possible_wallets.is_empty() {
             continue;
         }
-        let wallet_name = &possible_wallets[fastrand::usize(0..possible_wallets.len())];
-        let wallet = multi.get_wallet(wallet_name);
-        match wallet {
-            Err(err) => {
-                log::error!("could not read wallet: {:?}", err);
-                continue;
-            }
-            Ok(wallet) => {
-                let client = clients[&wallet.read().network()].clone();
-                let sent = sent.clone();
-                smolscale::spawn(async move {
-                    if let Err(err) = confirm_one(wallet, client, sent).await {
-                        log::warn!("error in confirm_one: {:?}", err)
-                    }
-                })
-                .detach();
+        log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());
+        for wallet in possible_wallets {
+            let wallet = multi.get_wallet(&wallet);
+            match wallet {
+                Err(err) => {
+                    log::error!("cannot read wallet: {}", err);
+                }
+                Ok(wallet) => {
+                    let client = clients[&wallet.read().network()].clone();
+                    smolscale::spawn(confirm_one(wallet, client, sent.clone())).detach()
+                }
             }
         }
     }
@@ -246,65 +249,67 @@ async fn confirm_one(
     client: ValClient,
     sent: Arc<Mutex<HashSet<TxHash>>>,
 ) -> anyhow::Result<()> {
-    let snapshot = client.snapshot().await.context("cannot snapshot")?;
-    wallet
-        .write()
-        .retain_valid_stakes(snapshot.current_header().height);
     let in_progress: BTreeMap<TxHash, Transaction> = wallet.read().tx_in_progress().clone();
-    // we pick a random value that's in progress
     let in_progress: Vec<Transaction> = in_progress.values().cloned().collect();
     if in_progress.is_empty() {
         return Ok(());
     }
-    let random_tx = &in_progress[fastrand::usize(0..in_progress.len())];
-    if fastrand::u8(0u8..10) == 0 || sent.lock().insert(random_tx.hash_nosigs()) {
-        log::warn!("transmit tx {}", random_tx.hash_nosigs());
-        let result = snapshot
-            .get_raw()
-            .send_tx(random_tx.clone())
-            .timeout(Duration::from_secs(10))
-            .await;
-        match result {
-            Some(Err(err)) => {
-                log::warn!(
-                    "retransmission of {} saw error: {:?}",
-                    random_tx.hash_nosigs(),
-                    err
-                );
+    let snapshot = client.snapshot().await.context("cannot snapshot")?;
+
+    for random_tx in in_progress {
+        if fastrand::f64() < 0.5 {
+            log::warn!("transmit tx {}", random_tx.hash_nosigs());
+            let result = snapshot
+                .get_raw()
+                .send_tx(random_tx.clone())
+                .timeout(Duration::from_secs(10))
+                .await;
+            match result {
+                Some(Err(err)) => {
+                    log::warn!(
+                        "retransmission of {} saw error: {:?}",
+                        random_tx.hash_nosigs(),
+                        err
+                    );
+                    if fastrand::f64() < 0.1 {
+                        log::warn!(
+                            "retransmission of {} is very stuck, so reverting",
+                            random_tx.hash_nosigs()
+                        );
+                        wallet.write().force_revert_tx(random_tx.hash_nosigs())
+                    }
+                }
+                Some(Ok(())) => {}
+                None => {
+                    log::warn!("retransmission of {} timed out!", random_tx.hash_nosigs());
+                }
             }
-            Some(Ok(())) => {
-                log::warn!("went through");
-            }
-            None => {
-                log::warn!("timed out!");
+        } else {
+            // find some change output
+            let my_covhash = wallet.read().my_covenant().hash();
+            let change_indexes = random_tx
+                .outputs
+                .iter()
+                .enumerate()
+                .filter(|v| v.1.covhash == my_covhash)
+                .map(|v| v.0);
+            for change_idx in change_indexes {
+                let coin_id = random_tx.output_coinid(change_idx as u8);
+                log::trace!("confirm_one looking at {}", coin_id);
+                let cdh = snapshot
+                    .get_coin(random_tx.output_coinid(change_idx as u8))
+                    .await
+                    .context("cannot get coin")?;
+                if let Some(cdh) = cdh {
+                    log::debug!("confirmed {} at height {}", coin_id, cdh.height);
+                    wallet.write().insert_coin(coin_id, cdh);
+                    sent.lock().remove(&random_tx.hash_nosigs());
+                } else {
+                    log::debug!("{} not confirmed yet", coin_id);
+                    break;
+                }
             }
         }
-        Ok(())
-    } else {
-        // find some change output
-        let my_covhash = wallet.read().my_covenant().hash();
-        let change_indexes = random_tx
-            .outputs
-            .iter()
-            .enumerate()
-            .filter(|v| v.1.covhash == my_covhash)
-            .map(|v| v.0);
-        for change_idx in change_indexes {
-            let coin_id = random_tx.output_coinid(change_idx as u8);
-            log::trace!("confirm_one looking at {}", coin_id);
-            let cdh = snapshot
-                .get_coin(random_tx.output_coinid(change_idx as u8))
-                .await
-                .context("cannot get coin")?;
-            if let Some(cdh) = cdh {
-                log::debug!("confirmed {} at height {}", coin_id, cdh.height);
-                wallet.write().insert_coin(coin_id, cdh);
-                sent.lock().remove(&random_tx.hash_nosigs());
-            } else {
-                log::debug!("{} not confirmed yet", coin_id);
-                break;
-            }
-        }
-        Ok(())
     }
+    Ok(())
 }

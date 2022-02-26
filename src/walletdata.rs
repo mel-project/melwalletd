@@ -237,7 +237,7 @@ impl WalletData {
             txn.outputs.extend(change.into_iter());
 
             log::debug!("candidate with {} inputs", txn.inputs.len());
-            if txn.inputs.len() > 10000 {
+            if txn.inputs.len() > 1000 {
                 return Direction::High(Err(anyhow::anyhow!("too many inputs")));
             }
 

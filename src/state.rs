@@ -271,13 +271,13 @@ async fn confirm_one(
                         random_tx.hash_nosigs(),
                         err
                     );
-                    if fastrand::f64() < 0.1 && !err.to_string().contains("duplicate") {
-                        log::warn!(
-                            "retransmission of {} is very stuck, so reverting",
-                            random_tx.hash_nosigs()
-                        );
-                        wallet.write().force_revert_tx(random_tx.hash_nosigs())
-                    }
+                    // if fastrand::f64() < 0.1 && !err.to_string().contains("duplicate") {
+                    //     log::warn!(
+                    //         "retransmission of {} is very stuck, so reverting",
+                    //         random_tx.hash_nosigs()
+                    //     );
+                    //     wallet.write().force_revert_tx(random_tx.hash_nosigs())
+                    // }
                 }
                 Some(Ok(())) => {}
                 None => {

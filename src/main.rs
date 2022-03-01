@@ -12,7 +12,7 @@ use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
-use themelio_stf::{melvm::Covenant, PoolKey};
+use themelio_stf::PoolKey;
 use themelio_structs::{
     CoinData, CoinID, CoinValue, Denom, NetID, StakeDoc, Transaction, TxHash, TxKind,
 };
@@ -229,14 +229,6 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .ok_or_else(wallet_notfound)?
         .full;
     let my_covhash = wallet.my_covenant().hash();
-    // remove all coins that we don't own
-    let mut clean_coins = wallet
-        .unspent_coins()
-        .iter()
-        .filter(|(_, cdh)| cdh.coin_data.covhash == my_covhash)
-        .map(|(x, y)| (*x, y.clone()))
-        .collect::<BTreeMap<_, _>>();
-    log::info!("{} clean coins", clean_coins.len());
     let snap = req.state().client(wallet.network()).snapshot().await?;
     if let Some(res) = snap
         .get_coins(my_covhash)
@@ -248,14 +240,12 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
             res.len(),
             snap.current_header().height
         );
-        clean_coins = res;
+        log::info!("setting to {}", res.len());
+        wallet.set_latest_coins(res);
+        log::info!("synced coins for wallet {}", wallet_name);
     } else {
         log::info!("NO canonical list info!");
     }
-    log::info!("setting to {}", clean_coins.len());
-    *wallet.unspent_coins_mut() = clean_coins;
-    req.state().insert_wallet(&wallet_name, wallet);
-    log::info!("cleaned up coins for wallet {}", wallet_name);
     Ok("".into())
 }
 
@@ -281,7 +271,7 @@ async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .get_coin(coin_id)
         .await
         .map_err(to_badgateway)?
-        .ok_or(notfound_with(format!("coin {coin_id} not found")))?;
+        .ok_or_else(|| notfound_with(format!("coin {coin_id} not found")))?;
     smol::unblock(move || wallet.write().insert_coin(coin_id, cdh)).await;
     Ok(Body::from_string("".into()))
 }
@@ -452,7 +442,7 @@ async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let txstatus = wallet
         .read()
         .get_tx_status(txhash)
-        .ok_or(notfound_with(format!("tx {txhash} not found")))?;
+        .ok_or_else(|| notfound_with(format!("tx {txhash} not found")))?;
     Ok(Body::from_json(&txstatus)?)
 }
 

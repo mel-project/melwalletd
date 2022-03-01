@@ -1,4 +1,4 @@
-use themelio_stf::{melvm::Covenant, HexBytes};
+use themelio_stf::melvm::Covenant;
 use themelio_structs::Transaction;
 use tmelcrypt::Ed25519SK;
 

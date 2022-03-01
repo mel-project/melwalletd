@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Context;
 use binary_search::Direction;
@@ -7,7 +7,7 @@ use serde_with::serde_as;
 use themelio_stf::melvm::{covenant_weight_from_bytes, Covenant};
 use themelio_structs::{
     BlockHeight, CoinData, CoinDataHeight, CoinID, CoinValue, Denom, NetID, StakeDoc, Transaction,
-    TxHash, TxKind, MAX_COINVAL,
+    TxHash, TxKind,
 };
 
 /// Cloneable in-memory data that can be persisted.
@@ -56,9 +56,23 @@ impl WalletData {
         &self.unspent_coins
     }
 
-    /// Unspent Coins
-    pub fn unspent_coins_mut(&mut self) -> &mut BTreeMap<CoinID, CoinDataHeight> {
-        &mut self.unspent_coins
+    /// Update coins with the correct set of coins. This automatically confirms transactions that created these coins too, while ignoring any coins that are in the process of being spent.
+    pub fn set_latest_coins(&mut self, coins: BTreeMap<CoinID, CoinDataHeight>) {
+        let coins_being_spent: HashSet<CoinID> = self
+            .tx_in_progress
+            .values()
+            .map(|v| v.inputs.iter().copied())
+            .flatten()
+            .collect();
+        let coins_to_consider: BTreeMap<CoinID, CoinDataHeight> = coins
+            .iter()
+            .filter(|c| !coins_being_spent.contains(c.0))
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        self.unspent_coins = coins_to_consider.clone();
+        for (coin, cdh) in coins_to_consider.iter() {
+            self.commit_confirmed(coin.txhash, cdh.height)
+        }
     }
 
     /// Spent Coins

@@ -1,8 +1,8 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     net::SocketAddr,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -221,7 +221,7 @@ pub struct WalletDump {
 // task that periodically pulls random coins to try to confirm
 async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
     let mut pacer = smol::Timer::interval(Duration::from_millis(30000));
-    let sent = Arc::new(Mutex::new(HashSet::new()));
+    let sent = Arc::new(Mutex::new(HashMap::new()));
     loop {
         (&mut pacer).await;
         let possible_wallets = multi.list().collect::<Vec<_>>();
@@ -247,7 +247,7 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
 async fn confirm_one(
     wallet: AcidJson<WalletData>,
     client: ValClient,
-    sent: Arc<Mutex<HashSet<TxHash>>>,
+    sent: Arc<Mutex<HashMap<TxHash, Instant>>>,
 ) -> anyhow::Result<()> {
     let in_progress: BTreeMap<TxHash, Transaction> = wallet.read().tx_in_progress().clone();
     let in_progress: Vec<Transaction> = in_progress.values().cloned().collect();
@@ -257,7 +257,13 @@ async fn confirm_one(
     let snapshot = client.snapshot().await.context("cannot snapshot")?;
 
     for random_tx in in_progress {
-        if fastrand::f64() < 0.5 {
+        let should_send = if let Some(res) = sent.lock().get(&random_tx.hash_nosigs()) {
+            res.elapsed().as_secs_f64() > 120.0
+        } else {
+            sent.lock().insert(random_tx.hash_nosigs(), Instant::now());
+            true
+        };
+        if should_send {
             log::warn!("transmit tx {}", random_tx.hash_nosigs());
             let result = snapshot
                 .get_raw()
@@ -271,43 +277,35 @@ async fn confirm_one(
                         random_tx.hash_nosigs(),
                         err
                     );
-                    // if fastrand::f64() < 0.1 && !err.to_string().contains("duplicate") {
-                    //     log::warn!(
-                    //         "retransmission of {} is very stuck, so reverting",
-                    //         random_tx.hash_nosigs()
-                    //     );
-                    //     wallet.write().force_revert_tx(random_tx.hash_nosigs())
-                    // }
                 }
                 Some(Ok(())) => {}
                 None => {
                     log::warn!("retransmission of {} timed out!", random_tx.hash_nosigs());
                 }
             }
-        } else {
-            // find some change output
-            let my_covhash = wallet.read().my_covenant().hash();
-            let change_indexes = random_tx
-                .outputs
-                .iter()
-                .enumerate()
-                .filter(|v| v.1.covhash == my_covhash)
-                .map(|v| v.0);
-            for change_idx in change_indexes {
-                let coin_id = random_tx.output_coinid(change_idx as u8);
-                log::trace!("confirm_one looking at {}", coin_id);
-                let cdh = snapshot
-                    .get_coin(random_tx.output_coinid(change_idx as u8))
-                    .await
-                    .context("cannot get coin")?;
-                if let Some(cdh) = cdh {
-                    log::debug!("confirmed {} at height {}", coin_id, cdh.height);
-                    wallet.write().insert_coin(coin_id, cdh);
-                    sent.lock().remove(&random_tx.hash_nosigs());
-                } else {
-                    log::debug!("{} not confirmed yet", coin_id);
-                    break;
-                }
+        }
+        // find some change output
+        let my_covhash = wallet.read().my_covenant().hash();
+        let change_indexes = random_tx
+            .outputs
+            .iter()
+            .enumerate()
+            .filter(|v| v.1.covhash == my_covhash)
+            .map(|v| v.0);
+        for change_idx in change_indexes {
+            let coin_id = random_tx.output_coinid(change_idx as u8);
+            log::trace!("confirm_one looking at {}", coin_id);
+            let cdh = snapshot
+                .get_coin(random_tx.output_coinid(change_idx as u8))
+                .await
+                .context("cannot get coin")?;
+            if let Some(cdh) = cdh {
+                log::debug!("confirmed {} at height {}", coin_id, cdh.height);
+                wallet.write().insert_coin(coin_id, cdh);
+                sent.lock().remove(&random_tx.hash_nosigs());
+            } else {
+                log::debug!("{} not confirmed yet", coin_id);
+                break;
             }
         }
     }

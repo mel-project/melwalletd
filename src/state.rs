@@ -220,7 +220,7 @@ pub struct WalletDump {
 
 // task that periodically pulls random coins to try to confirm
 async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
-    let mut pacer = smol::Timer::interval(Duration::from_millis(30000));
+    let mut pacer = smol::Timer::interval(Duration::from_millis(15000));
     let sent = Arc::new(Mutex::new(HashMap::new()));
     loop {
         (&mut pacer).await;
@@ -229,15 +229,16 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
             continue;
         }
         log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());
-        for wallet in possible_wallets {
-            let wallet = multi.get_wallet(&wallet);
+        for wallet_name in possible_wallets {
+            let wallet = multi.get_wallet(&wallet_name);
             match wallet {
                 Err(err) => {
                     log::error!("cannot read wallet: {}", err);
                 }
                 Ok(wallet) => {
                     let client = clients[&wallet.read().network()].clone();
-                    smolscale::spawn(confirm_one(wallet, client, sent.clone())).detach()
+                    smolscale::spawn(confirm_one(wallet_name, wallet, client, sent.clone()))
+                        .detach()
                 }
             }
         }
@@ -245,6 +246,7 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
 }
 
 async fn confirm_one(
+    wallet_name: String,
     wallet: AcidJson<WalletData>,
     client: ValClient,
     sent: Arc<Mutex<HashMap<TxHash, Instant>>>,
@@ -257,11 +259,14 @@ async fn confirm_one(
     let snapshot = client.snapshot().await.context("cannot snapshot")?;
 
     for random_tx in in_progress {
-        let should_send = if let Some(res) = sent.lock().get(&random_tx.hash_nosigs()) {
-            res.elapsed().as_secs_f64() > 120.0
-        } else {
-            sent.lock().insert(random_tx.hash_nosigs(), Instant::now());
-            true
+        let should_send = {
+            let mut sent = sent.lock();
+            if let Some(res) = sent.get(&random_tx.hash_nosigs()) {
+                res.elapsed().as_secs_f64() > 120.0
+            } else {
+                sent.insert(random_tx.hash_nosigs(), Instant::now());
+                true
+            }
         };
         if should_send {
             log::warn!("transmit tx {}", random_tx.hash_nosigs());

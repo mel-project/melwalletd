@@ -223,11 +223,7 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
     let mut pacer = smol::Timer::interval(Duration::from_millis(15000));
     let sent = Arc::new(Mutex::new(HashMap::new()));
     loop {
-        (&mut pacer).await;
         let possible_wallets = multi.list().collect::<Vec<_>>();
-        if possible_wallets.is_empty() {
-            continue;
-        }
         log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());
         for wallet_name in possible_wallets {
             let wallet = multi.get_wallet(&wallet_name);
@@ -242,6 +238,7 @@ async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
                 }
             }
         }
+        (&mut pacer).await;
     }
 }
 
@@ -253,11 +250,8 @@ async fn confirm_one(
 ) -> anyhow::Result<()> {
     let in_progress: BTreeMap<TxHash, Transaction> = wallet.read().tx_in_progress().clone();
     let in_progress: Vec<Transaction> = in_progress.values().cloned().collect();
-    if in_progress.is_empty() {
-        return Ok(());
-    }
     let snapshot = client.snapshot().await.context("cannot snapshot")?;
-
+    let my_covhash = wallet.read().my_covenant().hash();
     for random_tx in in_progress {
         let should_send = {
             let mut sent = sent.lock();
@@ -290,7 +284,6 @@ async fn confirm_one(
             }
         }
         // find some change output
-        let my_covhash = wallet.read().my_covenant().hash();
         let change_indexes = random_tx
             .outputs
             .iter()
@@ -305,12 +298,55 @@ async fn confirm_one(
                 .await
                 .context("cannot get coin")?;
             if let Some(cdh) = cdh {
-                log::debug!("confirmed {} at height {}", coin_id, cdh.height);
+                log::debug!(
+                    "{}: confirmed {} at height {}",
+                    wallet_name,
+                    coin_id,
+                    cdh.height
+                );
                 wallet.write().insert_coin(coin_id, cdh);
                 sent.lock().remove(&random_tx.hash_nosigs());
             } else {
-                log::debug!("{} not confirmed yet", coin_id);
+                log::debug!("{}: {} not confirmed yet", wallet_name, coin_id);
                 break;
+            }
+        }
+    }
+
+    if let Some(correct_coin_count) = snapshot.get_coin_count(my_covhash).await? {
+        let my_coin_count = wallet.read().unspent_coins().len();
+        if correct_coin_count != wallet.read().unspent_coins().len() as u64 {
+            log::warn!(
+                "{}: desynced (have {}, should have {}), forcing a sync",
+                wallet_name,
+                my_coin_count,
+                correct_coin_count
+            );
+            if let Some(all_coins) = snapshot
+                .get_raw()
+                .get_some_coins(snapshot.current_header().height, my_covhash)
+                .await?
+            {
+                if all_coins.len() as u64 != correct_coin_count {
+                    anyhow::bail!("sent us an incomplete coin list")
+                }
+                let presnap = wallet.read().unspent_coins().clone();
+                let mut accum = BTreeMap::new();
+                let total = all_coins.len();
+                for (i, coin_id) in all_coins.into_iter().enumerate() {
+                    // log::debug!("{}: loading coin {}/{}", wallet_name, i, total);
+                    if let Some(val) = presnap.get(&coin_id) {
+                        accum.insert(coin_id, val.clone());
+                    } else {
+                        let val = snapshot
+                            .get_coin(coin_id)
+                            .await?
+                            .context("they gave us a bad coinid")?;
+                        accum.insert(coin_id, val);
+                    }
+                }
+                let mut wallet = wallet.write();
+                wallet.set_latest_coins(accum);
             }
         }
     }

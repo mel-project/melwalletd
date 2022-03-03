@@ -195,9 +195,18 @@ impl WalletData {
 
             // then we add random other inputs until enough.
             // we filter out everything that is in the stake list.
-            for (coin, data) in self.unspent_coins.iter() {
+            let shuffled_unspent_coins = {
+                let mut cc = self
+                    .unspent_coins
+                    .iter()
+                    .map(|(k, v)| (*k, v.clone()))
+                    .collect::<Vec<_>>();
+                fastrand::shuffle(&mut cc);
+                cc
+            };
+            for (coin, data) in shuffled_unspent_coins {
                 // blacklist of coins
-                if mandatory_inputs.contains_key(coin)
+                if mandatory_inputs.contains_key(&coin)
                     || nobalance.contains(&data.coin_data.denom)
                     || self.stake_list.contains_key(&coin.txhash) && coin.index == 0
                     || data.coin_data.covhash != self.my_covenant().hash()
@@ -215,7 +224,7 @@ impl WalletData {
                         .cloned()
                         .unwrap_or(CoinValue(0))
                 {
-                    txn.inputs.push(*coin);
+                    txn.inputs.push(coin);
                     input_sum.insert(data.coin_data.denom, existing_val + data.coin_data.value);
                 }
             }
@@ -251,7 +260,7 @@ impl WalletData {
             txn.outputs.extend(change.into_iter());
 
             log::debug!("candidate with {} inputs", txn.inputs.len());
-            if txn.inputs.len() > 1000 {
+            if txn.inputs.len() > 5000 {
                 return Direction::High(Err(anyhow::anyhow!("too many inputs")));
             }
 
@@ -334,6 +343,17 @@ impl WalletData {
     pub fn commit_confirmed(&mut self, txhash: TxHash, height: BlockHeight) {
         if let Some(tx) = self.tx_in_progress.remove(&txhash) {
             self.tx_confirmed.insert(txhash, (tx, height));
+        }
+        // garbage-collect the confirmed txx
+        if self.tx_confirmed.len() > 20 {
+            let mut vv = self
+                .tx_confirmed
+                .iter()
+                .map(|(k, v)| (*k, v.clone()))
+                .collect::<Vec<_>>();
+            vv.sort_unstable_by_key(|(_, v)| v.1);
+            vv.reverse();
+            self.tx_confirmed = vv.into_iter().take(10).collect();
         }
     }
 

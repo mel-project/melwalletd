@@ -1,3 +1,4 @@
+mod database;
 mod multi;
 mod secrets;
 mod signer;
@@ -12,15 +13,18 @@ use serde::Deserialize;
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
+use tap::Tap;
+use themelio_nodeprot::ValClient;
 use themelio_stf::PoolKey;
 use themelio_structs::{
-    CoinData, CoinID, CoinValue, Denom, NetID, StakeDoc, Transaction, TxHash, TxKind,
+    BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, Transaction, TxHash, TxKind,
 };
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
-use tmelcrypt::Ed25519SK;
+use tmelcrypt::{Ed25519SK, HashVal};
+use walletdata::{AnnCoinID, TransactionStatus};
 
-use crate::{secrets::SecretStore, signer::Signer};
+use crate::{database::Database, secrets::SecretStore, signer::Signer};
 
 #[derive(StructOpt)]
 struct Args {
@@ -74,15 +78,49 @@ fn main() -> anyhow::Result<()> {
         }
         let multiwallet = MultiWallet::open(&args.wallet_dir)?;
         log::info!(
-            "opened wallet directory: {:?}",
+            "opened LEGACY wallet directory: {:?}",
             multiwallet.list().collect::<Vec<_>>()
         );
+
+        let mainnet_db = Database::open(
+            args.wallet_dir
+                .clone()
+                .tap_mut(|p| p.push("mainnet-wallets.db")),
+        )
+        .await?;
+        let testnet_db = Database::open(
+            args.wallet_dir
+                .clone()
+                .tap_mut(|p| p.push("testnet-wallets.db")),
+        )
+        .await?;
+        let mainnet_addr = args
+            .mainnet_connect
+            .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]);
+        let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
+        mainnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Mainnet).unwrap());
+        for wallet_name in multiwallet.list() {
+            let wallet = multiwallet.get_wallet(&wallet_name)?;
+            if wallet.read().network() == NetID::Mainnet {
+                if mainnet_db.get_wallet(&wallet_name).await.is_none() {
+                    let wallet = wallet.read().clone();
+                    log::info!("restoring mainnet {}", wallet_name);
+                    mainnet_db.restore_wallet_dump(&wallet_name, wallet).await;
+                }
+            } else if testnet_db.get_wallet(&wallet_name).await.is_none() {
+                let wallet = wallet.read().clone();
+                log::info!("restoring testnet {}", wallet_name);
+                testnet_db.restore_wallet_dump(&wallet_name, wallet).await;
+            }
+        }
+
         let mut secret_path = args.wallet_dir.clone();
         secret_path.push(".secrets.json");
         let secrets = SecretStore::open(&secret_path)?;
 
         let state = AppState::new(
-            multiwallet,
+            mainnet_db,
+            testnet_db,
             secrets,
             args.mainnet_connect
                 .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]),
@@ -110,7 +148,7 @@ fn main() -> anyhow::Result<()> {
         app.at("/summary").get(get_summary);
         app.at("/pools/:pair").get(get_pool);
         app.at("/wallets").get(list_wallets);
-        app.at("/wallets/:name").get(dump_wallet);
+        app.at("/wallets/:name").get(summarize_wallet);
         app.at("/wallets/:name").put(create_wallet);
         app.at("/wallets/:name/lock").post(lock_wallet);
         app.at("/wallets/:name/unlock").post(unlock_wallet);
@@ -127,6 +165,18 @@ fn main() -> anyhow::Result<()> {
         app.listen(args.listen).await?;
         Ok(())
     })
+}
+
+async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    let wallet_name = req.param("name")?;
+    let summary = req
+        .state()
+        .wallet_summary(wallet_name)
+        .await
+        .context("not found")
+        .map_err(to_notfound)?;
+    Body::from_json(&summary)
 }
 
 async fn get_summary(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -172,7 +222,7 @@ async fn get_pool(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn list_wallets(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
-    Body::from_json(&smol::unblock(move || req.state().list_wallets()).await)
+    Body::from_json(&req.state().list_wallets().await)
 }
 
 async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -196,57 +246,14 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
             sk,
             query.password,
         )
+        .await
         .context("cannot create wallet")?;
     Ok("".into())
 }
 
-async fn dump_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    check_auth(&req)?;
-    let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let query: BTreeMap<String, String> = req.query()?;
-    if query.contains_key("summary") {
-        Body::from_json(
-            &req.state()
-                .dump_wallet(&wallet_name)
-                .ok_or_else(wallet_notfound)?
-                .summary,
-        )
-    } else {
-        Body::from_json(
-            &req.state()
-                .dump_wallet(&wallet_name)
-                .ok_or_else(wallet_notfound)?,
-        )
-    }
-}
-
 async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
-    let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let mut wallet = req
-        .state()
-        .dump_wallet(&wallet_name)
-        .ok_or_else(wallet_notfound)?
-        .full;
-    let my_covhash = wallet.my_covenant().hash();
-    let snap = req.state().client(wallet.network()).snapshot().await?;
-    if let Some(res) = snap
-        .get_coins(my_covhash)
-        .await
-        .context("cannot get coins")?
-    {
-        log::info!(
-            "received CANONICAL list with {} coins at height {}",
-            res.len(),
-            snap.current_header().height
-        );
-        log::info!("setting to {}", res.len());
-        wallet.set_latest_coins(res);
-        log::info!("synced coins for wallet {}", wallet_name);
-    } else {
-        log::info!("NO canonical list info!");
-    }
-    Ok("".into())
+    todo!()
 }
 
 // async fn sweep_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -257,23 +264,7 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
-    let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let coin_id: CoinID = req.param("coinid")?.parse().map_err(to_badreq)?;
-    let wallet = req
-        .state()
-        .multi()
-        .get_wallet(&wallet_name)
-        .map_err(to_badreq)?;
-    // Get the stuff
-    let client = req.state().client(wallet.read().network()).clone();
-    let snapshot = client.snapshot().await.map_err(to_badgateway)?;
-    let cdh = snapshot
-        .get_coin(coin_id)
-        .await
-        .map_err(to_badgateway)?
-        .ok_or_else(|| notfound_with(format!("coin {coin_id} not found")))?;
-    smol::unblock(move || wallet.write().insert_coin(coin_id, cdh)).await;
-    Ok(Body::from_string("".into()))
+    todo!()
 }
 
 async fn lock_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -299,31 +290,9 @@ async fn unlock_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     Ok("".into())
 }
 
-async fn prepare_stake_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
+async fn prepare_stake_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
-    let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let stake_doc: StakeDoc = req.body_json().await?;
-    let signing_key = req
-        .state()
-        .get_signer(&wallet_name)
-        .context("wallet is locked")
-        .map_err(to_forbidden)?;
-    let wallet = req
-        .state()
-        .multi()
-        .get_wallet(&wallet_name)
-        .map_err(to_badreq)?;
-    let network = wallet.read().network();
-    let fee_multiplier = req.state().current_fee_multiplier(network).await?;
-    let prepared = wallet
-        .read()
-        .prepare_stake(stake_doc, fee_multiplier, |mut tx| {
-            for i in 0..tx.inputs.len() {
-                tx = signing_key.sign_tx(tx, i)?;
-            }
-            Ok(tx)
-        })?;
-    Ok(Body::from_json(&prepared)?)
+    todo!()
 }
 
 async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -351,14 +320,15 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
             .context("wallet is locked")
             .map_err(to_forbidden)?
     };
-    let wallet = req
+    let (wallet, network) = req
         .state()
-        .multi()
         .get_wallet(&wallet_name)
+        .await
+        .context("no wallet")
         .map_err(to_badreq)?;
 
     // calculate fees
-    let client = req.state().client(wallet.read().network()).clone();
+    let client = req.state().client(network).clone();
     let snapshot = client.snapshot().await.map_err(to_badgateway)?;
     let fee_multiplier = snapshot.current_header().fee_multiplier;
     let kind = request.kind;
@@ -366,8 +336,8 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         Some(v) => Some(hex::decode(v).map_err(to_badreq)?),
         None => None,
     };
-    let prepared_tx = smol::unblock(move || {
-        wallet.read().prepare(
+    let prepared_tx = wallet
+        .prepare(
             request.inputs.clone(),
             request.outputs.clone(),
             fee_multiplier,
@@ -386,9 +356,8 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
             },
             request.nobalance.clone(),
         )
-    })
-    .await
-    .map_err(to_badreq)?;
+        .await
+        .map_err(to_badreq)?;
 
     Ok(Body::from_json(&prepared_tx)?)
 }
@@ -397,64 +366,88 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let tx: Transaction = req.body_json().await?;
-    let wallet = req
+    let (wallet, netid) = req
         .state()
-        .multi()
         .get_wallet(&wallet_name)
+        .await
+        .context("fail")
         .map_err(to_badreq)?;
+    let snapshot = req.state().client(netid).snapshot().await?;
+    // we send it off ourselves
+    snapshot.get_raw().send_tx(tx.clone()).await?;
     // we mark the TX as sent in this thread.
-    wallet.write().commit_sent(tx.clone()).map_err(to_badreq)?;
-    let netid = wallet.read().network();
-    // then we send it off ourselves
-    req.state()
-        .client(netid)
-        .snapshot()
-        .await?
-        .get_raw()
-        .send_tx(tx.clone())
-        .await?;
+    wallet
+        .commit_sent(
+            tx.clone(),
+            snapshot.current_header().height + BlockHeight(10),
+        )
+        .await
+        .map_err(to_badreq)?;
     log::info!("sent transaction with hash {}", tx.hash_nosigs());
     Ok(Body::from_json(&tx.hash_nosigs())?)
 }
 
 async fn force_revert_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
-    let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let txhash: TxHash = TxHash(req.param("txhash")?.parse().map_err(to_badreq)?);
-    let wallet = req
-        .state()
-        .multi()
-        .get_wallet(&wallet_name)
-        .map_err(to_badreq)?;
-    wallet.write().force_revert_tx(txhash);
-    Ok("".into())
+    todo!()
 }
 
 async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let txhash: TxHash = TxHash(req.param("txhash")?.parse().map_err(to_badreq)?);
-    let wallet = req
+    let (wallet, _) = req
         .state()
-        .multi()
         .get_wallet(&wallet_name)
+        .await
+        .context("wtf")
         .map_err(to_badreq)?;
-    let txstatus = wallet
-        .read()
-        .get_tx_status(txhash)
-        .ok_or_else(|| notfound_with(format!("tx {txhash} not found")))?;
-    Ok(Body::from_json(&txstatus)?)
+    let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
+    let raw = wallet
+        .get_transaction(txhash.into())
+        .await
+        .context("not found")
+        .map_err(to_notfound)?;
+    let mut confirmed_height = None;
+    for idx in 0..raw.outputs.len() {
+        if let Some(cdh) = wallet
+            .get_coin_confirmation(raw.output_coinid(idx as u8))
+            .await
+        {
+            confirmed_height = Some(cdh.height);
+        }
+    }
+    let outputs = raw
+        .outputs
+        .iter()
+        .enumerate()
+        .map(|(i, cd)| {
+            let coin_id = raw.output_coinid(i as u8).to_string();
+            let is_change = cd.covhash == wallet.address();
+            let coin_data = cd.clone();
+            AnnCoinID {
+                coin_data,
+                is_change,
+                coin_id,
+            }
+        })
+        .collect();
+    Body::from_json(&TransactionStatus {
+        raw,
+        confirmed_height,
+        outputs,
+    })
 }
 
 async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let wallet = req
+    let (wallet, network) = req
         .state()
-        .multi()
         .get_wallet(&wallet_name)
+        .await
+        .context("wtf")
         .map_err(to_badreq)?;
-    if wallet.read().network() != NetID::Testnet {
+    if network != NetID::Testnet {
         return Err(tide::Error::new(
             StatusCode::BadRequest,
             anyhow::anyhow!("not testnet"),
@@ -464,7 +457,7 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         kind: TxKind::Faucet,
         inputs: vec![],
         outputs: vec![CoinData {
-            covhash: wallet.read().my_covenant().hash(),
+            covhash: wallet.address(),
             value: CoinValue::from_millions(1001u64),
             denom: Denom::Mel,
             additional_data: vec![],
@@ -476,7 +469,10 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     };
     // we mark the TX as sent in this thread
     let txhash = tx.hash_nosigs();
-    wallet.write().commit_sent(tx).map_err(to_badreq)?;
+    wallet
+        .commit_sent(tx, BlockHeight(u64::MAX))
+        .await
+        .map_err(to_badreq)?;
     Ok(Body::from_json(&txhash)?)
 }
 

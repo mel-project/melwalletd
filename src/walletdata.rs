@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    time::Instant,
+};
 
 use anyhow::Context;
 use binary_search::Direction;
@@ -16,15 +19,16 @@ use themelio_structs::{
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WalletData {
     #[serde_as(as = "Vec<(_, _)>")]
-    unspent_coins: BTreeMap<CoinID, CoinDataHeight>,
+    pub unspent_coins: BTreeMap<CoinID, CoinDataHeight>,
     #[serde_as(as = "Vec<(_, _)>")]
-    spent_coins: BTreeMap<CoinID, CoinDataHeight>,
-    tx_in_progress: BTreeMap<TxHash, Transaction>,
-    tx_confirmed: BTreeMap<TxHash, (Transaction, BlockHeight)>,
+    pub spent_coins: BTreeMap<CoinID, CoinDataHeight>,
+    #[serde(rename = "tx_in_progress_v2", default)]
+    pub tx_in_progress: BTreeMap<TxHash, (Transaction, BlockHeight)>,
+    pub tx_confirmed: BTreeMap<TxHash, (Transaction, BlockHeight)>,
     #[serde(default)]
-    stake_list: BTreeMap<TxHash, StakeDoc>,
-    my_covenant: Covenant,
-    network: NetID,
+    pub stake_list: BTreeMap<TxHash, StakeDoc>,
+    pub my_covenant: Covenant,
+    pub network: NetID,
 }
 
 impl WalletData {
@@ -61,7 +65,7 @@ impl WalletData {
         let coins_being_spent: HashSet<CoinID> = self
             .tx_in_progress
             .values()
-            .map(|v| v.inputs.iter().copied())
+            .map(|v| v.0.inputs.iter().copied())
             .flatten()
             .collect();
         let coins_to_consider: BTreeMap<CoinID, CoinDataHeight> = coins
@@ -85,8 +89,8 @@ impl WalletData {
         &self.stake_list
     }
 
-    /// In-progress transactions
-    pub fn tx_in_progress(&self) -> &BTreeMap<TxHash, Transaction> {
+    /// In-progress transactions, with their maximum confirmation heights
+    pub fn tx_in_progress(&self) -> &BTreeMap<TxHash, (Transaction, BlockHeight)> {
         &self.tx_in_progress
     }
 
@@ -94,7 +98,7 @@ impl WalletData {
     pub fn force_revert_tx(&mut self, txhash: TxHash) {
         if let Some(tx) = self.tx_in_progress.remove(&txhash) {
             // un-spend all the coins spent by this tx
-            for input in tx.inputs.iter() {
+            for input in tx.0.inputs.iter() {
                 if let Some(coin) = self.spent_coins.remove(input) {
                     self.unspent_coins.insert(*input, coin);
                 }
@@ -162,6 +166,7 @@ impl WalletData {
         }
         let gen_transaction = |fee| {
             log::debug!("trying with a fee of {} MEL", fee);
+            let start = Instant::now();
             // find coins that might match
             let mut txn = Transaction {
                 kind: TxKind::Normal,
@@ -193,6 +198,8 @@ impl WalletData {
                 input_sum.remove(denom);
             }
 
+            log::trace!("before unspent coins: {:?}", start.elapsed());
+
             // then we add random other inputs until enough.
             // we filter out everything that is in the stake list.
             let shuffled_unspent_coins = {
@@ -204,6 +211,9 @@ impl WalletData {
                 fastrand::shuffle(&mut cc);
                 cc
             };
+
+            log::trace!("after shuffling unspent coins: {:?}", start.elapsed());
+
             for (coin, data) in shuffled_unspent_coins {
                 // blacklist of coins
                 if mandatory_inputs.contains_key(&coin)
@@ -228,6 +238,8 @@ impl WalletData {
                     input_sum.insert(data.coin_data.denom, existing_val + data.coin_data.value);
                 }
             }
+
+            log::trace!("after going through unspent coins: {:?}", start.elapsed());
 
             // create change outputs
             let change = {
@@ -259,6 +271,7 @@ impl WalletData {
             };
             txn.outputs.extend(change.into_iter());
 
+            log::trace!("before signing: {:?}", start.elapsed());
             log::debug!("candidate with {} inputs", txn.inputs.len());
             if txn.inputs.len() > 5000 {
                 return Direction::High(Err(anyhow::anyhow!("too many inputs")));
@@ -269,6 +282,7 @@ impl WalletData {
                 return Direction::High(Err(anyhow::anyhow!("transaction not well-formed")));
             }
             let signed_txn = sign(txn);
+            log::trace!("after signing: {:?}", start.elapsed());
             match signed_txn {
                 Ok(signed_txn) => {
                     if signed_txn.fee
@@ -289,6 +303,16 @@ impl WalletData {
             .filter(|cdh| cdh.coin_data.denom == Denom::Mel)
             .map(|d| d.coin_data.value)
             .sum();
+        let max_fee = match gen_transaction(CoinValue(0u128)) {
+            Direction::Low(Ok(t)) => {
+                t.base_fee(fee_multiplier, 0, covenant_weight_from_bytes) * 3 + CoinValue(100)
+            }
+            Direction::High(Ok(t)) => {
+                t.base_fee(fee_multiplier, 0, covenant_weight_from_bytes) * 3 + CoinValue(100)
+            }
+            _ => max_fee,
+        };
+        dbg!(max_fee);
         let (_, (_, val)) = binary_search::binary_search(
             (0u128, Err(anyhow::anyhow!("nothing"))),
             (max_fee.0, Err(anyhow::anyhow!("nothing"))),
@@ -299,7 +323,7 @@ impl WalletData {
     }
 
     /// Informs the state of a sent transaction. This transaction must only spend coins that are in the wallet. Such a transaction can be created using [WalletData::prepare].
-    pub fn commit_sent(&mut self, txn: Transaction) -> anyhow::Result<()> {
+    pub fn commit_sent(&mut self, txn: Transaction, timeout: BlockHeight) -> anyhow::Result<()> {
         // we clone self to guarantee error-safety
         let mut oself = self.clone();
         if !txn.is_well_formed() {
@@ -333,7 +357,9 @@ impl WalletData {
             oself.stake_list.insert(txn.hash_nosigs(), sdoc);
         }
         // put tx in progress
-        oself.tx_in_progress.insert(txn.hash_nosigs(), txn);
+        oself
+            .tx_in_progress
+            .insert(txn.hash_nosigs(), (txn, timeout));
         // "commit"
         *self = oself;
         Ok(())
@@ -342,7 +368,7 @@ impl WalletData {
     /// Informs the state of a confirmed transaction, based on its txhash. This will move the transaction from the in-progress to confirmed.
     pub fn commit_confirmed(&mut self, txhash: TxHash, height: BlockHeight) {
         if let Some(tx) = self.tx_in_progress.remove(&txhash) {
-            self.tx_confirmed.insert(txhash, (tx, height));
+            self.tx_confirmed.insert(txhash, (tx.0, height));
         }
         // garbage-collect the confirmed txx
         if self.tx_confirmed.len() > 20 {
@@ -362,7 +388,7 @@ impl WalletData {
         let (confirmed_height, raw) = if let Some((tx, height)) = self.tx_confirmed.get(&txhash) {
             (Some(*height), tx.clone())
         } else if let Some(tx) = self.tx_in_progress.get(&txhash) {
-            (None, tx.clone())
+            (None, tx.0.clone())
         } else {
             return None;
         };

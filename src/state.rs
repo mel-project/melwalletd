@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    multi::MultiWallet,
+    database::{Database, Wallet},
     secrets::{EncryptedSK, PersistentSecret, SecretStore},
     signer::Signer,
     to_badgateway,
@@ -17,17 +17,18 @@ use anyhow::Context;
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use smol::future::FutureExt;
 use smol_timeout::TimeoutExt;
+use tap::TapFallible;
 use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
-use themelio_structs::{
-    Address, CoinDataHeight, CoinID, CoinValue, Denom, NetID, Transaction, TxHash,
-};
+use themelio_structs::{Address, BlockHeight, CoinValue, Denom, NetID, Transaction, TxHash};
 use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
 pub struct AppState {
-    multi: MultiWallet,
+    mainnet_db: Database,
+    testnet_db: Database,
     clients: HashMap<NetID, ValClient>,
     unlocked_signers: DashMap<String, Arc<dyn Signer>>,
     secrets: SecretStore,
@@ -37,7 +38,8 @@ pub struct AppState {
 impl AppState {
     /// Creates a new appstate, given a mainnet and testnet server.
     pub fn new(
-        multi: MultiWallet,
+        mainnet_db: Database,
+        testnet_db: Database,
         secrets: SecretStore,
         mainnet_addr: SocketAddr,
         testnet_addr: SocketAddr,
@@ -47,16 +49,20 @@ impl AppState {
         mainnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Mainnet).unwrap());
         testnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Testnet).unwrap());
         let clients: HashMap<NetID, ValClient> = vec![
-            (NetID::Mainnet, mainnet_client),
-            (NetID::Testnet, testnet_client),
+            (NetID::Mainnet, mainnet_client.clone()),
+            (NetID::Testnet, testnet_client.clone()),
         ]
         .into_iter()
         .collect();
 
-        let _confirm_task = smolscale::spawn(confirm_task(multi.clone(), clients.clone()));
+        let _confirm_task = smolscale::spawn(
+            confirm_task(mainnet_db.clone(), mainnet_client)
+                .race(confirm_task(testnet_db.clone(), testnet_client)),
+        );
 
         Self {
-            multi,
+            mainnet_db,
+            testnet_db,
             clients,
             unlocked_signers: Default::default(),
             secrets,
@@ -65,45 +71,32 @@ impl AppState {
     }
 
     /// Returns a summary of wallets.
-    pub fn list_wallets(&self) -> BTreeMap<String, WalletSummary> {
-        self.multi
-            .list()
-            .filter_map(|v| self.multi.get_wallet(&v).ok().map(|wd| (v, wd)))
-            .map(|(name, wd)| {
-                let wd = wd.read();
-                let unspent: &BTreeMap<CoinID, CoinDataHeight> = wd.unspent_coins();
-                let total_micromel = unspent
+    pub async fn list_wallets(&self) -> BTreeMap<String, WalletSummary> {
+        let mlist = self.mainnet_db.list_wallets().await;
+        let tlist = self.testnet_db.list_wallets().await;
+        let mut toret = BTreeMap::new();
+        for name in mlist.into_iter().chain(tlist.into_iter()) {
+            let (wallet, network) = self.get_wallet(&name).await.unwrap();
+            let balance = wallet.get_balances().await;
+            let summary = WalletSummary {
+                detailed_balance: balance
                     .iter()
-                    .filter(|(_, cdh)| {
-                        cdh.coin_data.denom == Denom::Mel
-                            && cdh.coin_data.covhash == wd.my_covenant().hash()
-                    })
-                    .map(|(_, cdh)| cdh.coin_data.value)
-                    .sum();
-                let mut detailed_balance = BTreeMap::new();
-                for (_, cdh) in unspent.iter() {
-                    let entry = detailed_balance
-                        .entry(hex::encode(&cdh.coin_data.denom.to_bytes()))
-                        .or_default();
-                    if cdh.coin_data.covhash == wd.my_covenant().hash() {
-                        *entry += cdh.coin_data.value;
-                    }
-                }
-                let staked_microsym = wd.stake_list().values().map(|v| v.syms_staked).sum();
-                let locked = !self.unlocked_signers.contains_key(&name);
-                (
-                    name,
-                    WalletSummary {
-                        total_micromel,
-                        detailed_balance,
-                        network: wd.network(),
-                        address: wd.my_covenant().hash(),
-                        locked,
-                        staked_microsym,
-                    },
-                )
-            })
-            .collect()
+                    .map(|(k, v)| (hex::encode(&k.to_bytes()), *v))
+                    .collect(),
+                total_micromel: balance.get(&Denom::Mel).copied().unwrap_or_default(),
+                network,
+                address: wallet.address(),
+                locked: !self.unlocked_signers.contains_key(&name),
+                staked_microsym: Default::default(),
+            };
+            toret.insert(name, summary);
+        }
+        toret
+    }
+
+    /// Returns a single summary of a wallet.
+    pub async fn wallet_summary(&self, name: &str) -> Option<WalletSummary> {
+        self.list_wallets().await.get(name).cloned()
     }
 
     /// Obtains the signer of a wallet. If the wallet is still locked, returns None.
@@ -134,44 +127,37 @@ impl AppState {
     }
 
     /// Dumps the state of a particular wallet.
-    pub fn dump_wallet(&self, name: &str) -> Option<WalletDump> {
-        let summary = self.list_wallets().get(name)?.clone();
-        let full = self.multi.get_wallet(name).ok()?.read().clone();
-        Some(WalletDump { summary, full })
+    pub async fn dump_wallet(&self, name: &str) -> Option<WalletDump> {
+        todo!()
+    }
+
+    /// Gets a wallet by name, returning the wallet handle and what network it belongs to.
+    pub async fn get_wallet(&self, name: &str) -> Option<(Wallet, NetID)> {
+        if let Some(wallet) = self.mainnet_db.get_wallet(name).await {
+            Some((wallet, NetID::Mainnet))
+        } else {
+            self.testnet_db
+                .get_wallet(name)
+                .await
+                .map(|wallet| (wallet, NetID::Testnet))
+        }
     }
 
     /// Replaces the content of some wallet, wholesale.
     pub fn insert_wallet(&self, name: &str, dump: WalletData) {
-        if self.multi.get_wallet(name).is_err() {
-            let _ = self
-                .multi
-                .create_wallet(name, dump.my_covenant().clone(), dump.network());
-        }
-        let wallet = self
-            .multi
-            .get_wallet(name)
-            .expect("this does not make any sense");
-        log::debug!(
-            "inserting wallet (rough size {})",
-            format!("{:?}", dump).len()
-        );
-        *wallet.write() = dump;
+        todo!()
     }
 
     /// Creates a wallet with a given name.
-    pub fn create_wallet(
+    pub async fn create_wallet(
         &self,
         name: &str,
         network: NetID,
         key: Ed25519SK,
         pwd: Option<String>,
-    ) -> Option<()> {
-        if self.list_wallets().contains_key(name) {
-            log::debug!("skipping creation of wallets");
-            return None;
-        }
+    ) -> anyhow::Result<()> {
         let covenant = Covenant::std_ed25519_pk_new(key.to_public());
-        self.multi.create_wallet(name, covenant, network).ok()?;
+        self.database(network).create_wallet(name, covenant).await?;
         self.secrets.store(
             name.to_owned(),
             match pwd {
@@ -180,17 +166,21 @@ impl AppState {
             },
         );
         log::info!("created wallet with name {}", name);
-        Some(())
-    }
-
-    /// Gets a reference to the inner stuff.
-    pub fn multi(&self) -> &MultiWallet {
-        &self.multi
+        Ok(())
     }
 
     /// Gets a reference to the client.
     pub fn client(&self, network: NetID) -> &ValClient {
         &self.clients[&network]
+    }
+
+    /// Gets a reference to the database.
+    pub fn database(&self, network: NetID) -> &Database {
+        if network == NetID::Mainnet {
+            &self.mainnet_db
+        } else {
+            &self.testnet_db
+        }
     }
 
     /// Calculates the current fee multiplier, given the network.
@@ -219,136 +209,41 @@ pub struct WalletDump {
 }
 
 // task that periodically pulls random coins to try to confirm
-async fn confirm_task(multi: MultiWallet, clients: HashMap<NetID, ValClient>) {
+async fn confirm_task(database: Database, client: ValClient) {
     let mut pacer = smol::Timer::interval(Duration::from_millis(15000));
-    let sent = Arc::new(Mutex::new(HashMap::new()));
+    // let sent = Arc::new(Mutex::new(HashMap::new()));
     loop {
-        let possible_wallets = multi.list().collect::<Vec<_>>();
+        let possible_wallets = database.list_wallets().await;
         log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());
-        for wallet_name in possible_wallets {
-            let wallet = multi.get_wallet(&wallet_name);
-            match wallet {
-                Err(err) => {
-                    log::error!("cannot read wallet: {}", err);
-                }
-                Ok(wallet) => {
-                    let client = clients[&wallet.read().network()].clone();
-                    smolscale::spawn(confirm_one(wallet_name, wallet, client, sent.clone()))
-                        .detach()
-                }
-            }
-        }
-        (&mut pacer).await;
-    }
-}
-
-async fn confirm_one(
-    wallet_name: String,
-    wallet: AcidJson<WalletData>,
-    client: ValClient,
-    sent: Arc<Mutex<HashMap<TxHash, Instant>>>,
-) -> anyhow::Result<()> {
-    let in_progress: BTreeMap<TxHash, Transaction> = wallet.read().tx_in_progress().clone();
-    let in_progress: Vec<Transaction> = in_progress.values().cloned().collect();
-    let snapshot = client.snapshot().await.context("cannot snapshot")?;
-    let my_covhash = wallet.read().my_covenant().hash();
-    for random_tx in in_progress {
-        let should_send = {
-            let mut sent = sent.lock();
-            if let Some(res) = sent.get(&random_tx.hash_nosigs()) {
-                res.elapsed().as_secs_f64() > 120.0
-            } else {
-                sent.insert(random_tx.hash_nosigs(), Instant::now());
-                true
-            }
-        };
-        if should_send {
-            log::warn!("transmit tx {}", random_tx.hash_nosigs());
-            let result = snapshot
-                .get_raw()
-                .send_tx(random_tx.clone())
-                .timeout(Duration::from_secs(10))
-                .await;
-            match result {
-                Some(Err(err)) => {
-                    log::warn!(
-                        "retransmission of {} saw error: {:?}",
-                        random_tx.hash_nosigs(),
-                        err
-                    );
-                }
-                Some(Ok(())) => {}
-                None => {
-                    log::warn!("retransmission of {} timed out!", random_tx.hash_nosigs());
-                }
-            }
-        }
-        // find some change output
-        let change_indexes = random_tx
-            .outputs
-            .iter()
-            .enumerate()
-            .filter(|v| v.1.covhash == my_covhash)
-            .map(|v| v.0);
-        for change_idx in change_indexes {
-            let coin_id = random_tx.output_coinid(change_idx as u8);
-            log::trace!("confirm_one looking at {}", coin_id);
-            let cdh = snapshot
-                .get_coin(random_tx.output_coinid(change_idx as u8))
-                .await
-                .context("cannot get coin")?;
-            if let Some(cdh) = cdh {
-                log::debug!(
-                    "{}: confirmed {} at height {}",
-                    wallet_name,
-                    coin_id,
-                    cdh.height
-                );
-                wallet.write().insert_coin(coin_id, cdh);
-                sent.lock().remove(&random_tx.hash_nosigs());
-            } else {
-                log::debug!("{}: {} not confirmed yet", wallet_name, coin_id);
-                break;
-            }
-        }
-    }
-
-    if let Some(correct_coin_count) = snapshot.get_coin_count(my_covhash).await? {
-        let my_coin_count = wallet.read().unspent_coins().len();
-        if correct_coin_count != wallet.read().unspent_coins().len() as u64 {
-            log::warn!(
-                "{}: desynced (have {}, should have {}), forcing a sync",
-                wallet_name,
-                my_coin_count,
-                correct_coin_count
-            );
-            if let Some(all_coins) = snapshot
-                .get_raw()
-                .get_some_coins(snapshot.current_header().height, my_covhash)
-                .await?
-            {
-                if all_coins.len() as u64 != correct_coin_count {
-                    anyhow::bail!("sent us an incomplete coin list")
-                }
-                let presnap = wallet.read().unspent_coins().clone();
-                let mut accum = BTreeMap::new();
-                let total = all_coins.len();
-                for (i, coin_id) in all_coins.into_iter().enumerate() {
-                    // log::debug!("{}: loading coin {}/{}", wallet_name, i, total);
-                    if let Some(val) = presnap.get(&coin_id) {
-                        accum.insert(coin_id, val.clone());
-                    } else {
-                        let val = snapshot
-                            .get_coin(coin_id)
-                            .await?
-                            .context("they gave us a bad coinid")?;
-                        accum.insert(coin_id, val);
+        for wallet in possible_wallets {
+            if let Some(wallet) = database.get_wallet(&wallet).await {
+                match client.snapshot().await {
+                    Ok(snap) => {
+                        let _ = wallet
+                            .network_sync(snap)
+                            .await
+                            .tap_err(|err| log::warn!("failed sync: {:?}", err));
+                    }
+                    Err(err) => {
+                        log::warn!("failed to snap: {:?}", err);
                     }
                 }
-                let mut wallet = wallet.write();
-                wallet.set_latest_coins(accum);
             }
         }
+        // log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());
+        // for wallet_name in possible_wallets {
+        //     let wallet = multi.get_wallet(&wallet_name);
+        //     match wallet {
+        //         Err(err) => {
+        //             log::error!("cannot read wallet: {}", err);
+        //         }
+        //         Ok(wallet) => {
+        //             let client = clients[&wallet.read().network()].clone();
+        //             smolscale::spawn(confirm_one(wallet_name, wallet, client, sent.clone()))
+        //                 .detach()
+        //         }
+        //     }
+        // }
+        (&mut pacer).await;
     }
-    Ok(())
 }

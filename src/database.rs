@@ -141,6 +141,31 @@ impl Database {
         .expect("db failed");
         txn.commit().unwrap();
     }
+
+    /// Retransmit pending transactions
+    pub async fn retransmit_pending(&self, snapshot: ValClientSnapshot) -> anyhow::Result<()> {
+        log::debug!("called retransmit");
+        let mut conn = self.pool.get_conn().await;
+        let txn = conn.transaction()?;
+        let mut stmt =
+            txn.prepare_cached("select txblob from pending natural join transactions")?;
+        let mut rows = stmt.query(params![]).unwrap();
+        while let Ok(Some(row)) = rows.next() {
+            let blob: Vec<u8> = row.get(0)?;
+            let txn: Transaction = stdcode::deserialize(&blob)?;
+            log::debug!("retransmit {}", txn.hash_nosigs());
+            let snapshot = snapshot.clone();
+            smolscale::spawn(async move {
+                if let Err(err) = snapshot.get_raw().send_tx(txn).await {
+                    log::warn!("error retransmitting: {:?}", err);
+                }
+            })
+            .detach();
+        }
+        drop(rows);
+        drop(stmt);
+        Ok(())
+    }
 }
 
 /// A wallet within a database
@@ -432,13 +457,18 @@ impl Wallet {
         if txn.kind == TxKind::Normal {
             for (i, output) in txn.outputs.iter().enumerate() {
                 let coinid = txn.output_coinid(i as u8);
+                let denom = if output.denom == Denom::NewCoin {
+                    Denom::Custom(txn.hash_nosigs())
+                } else {
+                    output.denom
+                };
                 conn.execute(
                     "insert into coins values ($1, $2, $3, $4, $5) on conflict do nothing",
                     params![
                         coinid.to_string(),
-                        self.covhash.to_string(),
+                        output.covhash.to_string(),
                         output.value.0.to_string(),
-                        output.denom.to_bytes(),
+                        denom.to_bytes(),
                         output.additional_data.clone()
                     ],
                 )?;
@@ -501,7 +531,7 @@ impl Wallet {
             .await?
             .unwrap_or_default();
         // Then, we compare with the coins we already have
-        let existing_coins = self.get_coin_mapping(true, true).await;
+        let existing_coins = self.get_coin_mapping(true, false).await;
         if existing_coins.len() == remote_coin_count as usize {
             return Ok(());
         }
@@ -595,7 +625,7 @@ impl Wallet {
                 "insert into coins values ($1, $2, $3, $4, $5) on conflict do nothing",
                 params![
                     coin.to_string(),
-                    self.covhash.to_string(),
+                    cdh.coin_data.covhash.to_string(),
                     cdh.coin_data.value.0.to_string(),
                     cdh.coin_data.denom.to_bytes(),
                     cdh.coin_data.additional_data

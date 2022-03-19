@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     net::SocketAddr,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use crate::{
@@ -12,17 +12,14 @@ use crate::{
     to_badgateway,
     walletdata::WalletData,
 };
-use acidjson::AcidJson;
-use anyhow::Context;
+
 use dashmap::DashMap;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use smol::future::FutureExt;
-use smol_timeout::TimeoutExt;
 use tap::TapFallible;
 use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
-use themelio_structs::{Address, BlockHeight, CoinValue, Denom, NetID, Transaction, TxHash};
+use themelio_structs::{Address, CoinValue, Denom, NetID};
 use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
@@ -215,19 +212,23 @@ async fn confirm_task(database: Database, client: ValClient) {
     loop {
         let possible_wallets = database.list_wallets().await;
         log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());
-        for wallet in possible_wallets {
-            if let Some(wallet) = database.get_wallet(&wallet).await {
-                match client.snapshot().await {
-                    Ok(snap) => {
+        match client.snapshot().await {
+            Ok(snap) => {
+                for wallet in possible_wallets {
+                    if let Some(wallet) = database.get_wallet(&wallet).await {
                         let _ = wallet
-                            .network_sync(snap)
+                            .network_sync(snap.clone())
                             .await
                             .tap_err(|err| log::warn!("failed sync: {:?}", err));
                     }
-                    Err(err) => {
-                        log::warn!("failed to snap: {:?}", err);
-                    }
                 }
+                let _ = database
+                    .retransmit_pending(snap)
+                    .await
+                    .tap_err(|err| log::warn!("failed retransmit: {:?}", err));
+            }
+            Err(err) => {
+                log::warn!("failed to snap: {:?}", err);
             }
         }
         // log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());

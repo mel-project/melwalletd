@@ -153,12 +153,13 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/lock").post(lock_wallet);
         app.at("/wallets/:name/unlock").post(unlock_wallet);
         app.at("/wallets/:name/check").put(check_wallet);
-        app.at("/wallets/:name/coins/:coinid").put(add_coin);
+        app.at("/wallets/:name/coins").get(dump_coins);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
         app.at("/wallets/:name/prepare-stake-tx")
             .post(prepare_stake_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
         app.at("/wallets/:name/send-faucet").post(send_faucet);
+        // app.at("/wallets/:name/transactions").get(dump_tx);
         app.at("/wallets/:name/transactions/:txhash").get(get_tx);
         app.at("/wallets/:name/transactions/:txhash")
             .delete(force_revert_tx);
@@ -262,9 +263,17 @@ async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 // }
 
-async fn add_coin(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+async fn dump_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
-    todo!()
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let (wallet, _) = req
+        .state()
+        .get_wallet(&wallet_name)
+        .await
+        .context("not found")
+        .map_err(to_notfound)?;
+    let coins = wallet.get_coin_mapping(true, false).await;
+    Body::from_json(&coins.into_iter().collect::<Vec<_>>())
 }
 
 async fn lock_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {

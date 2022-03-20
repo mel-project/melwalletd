@@ -20,6 +20,7 @@ impl ConnPool {
         for _ in 0..64 {
             let conn = Connection::open(path.as_ref())?;
             conn.query_row("pragma journal_mode=WAL", [], |_| Ok(()))?;
+            conn.execute("pragma synchronous=NORMAL", [])?;
             send_conn.try_send(conn).unwrap();
         }
         Ok(Self {

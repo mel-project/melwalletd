@@ -21,7 +21,7 @@ use themelio_structs::{
 };
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
-use tmelcrypt::{Ed25519SK, HashVal};
+use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 use walletdata::{AnnCoinID, TransactionStatus};
 
 use crate::{database::Database, secrets::SecretStore, signer::Signer};
@@ -159,8 +159,10 @@ fn main() -> anyhow::Result<()> {
             .post(prepare_stake_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
         app.at("/wallets/:name/send-faucet").post(send_faucet);
-        // app.at("/wallets/:name/transactions").get(dump_tx);
+        app.at("/wallets/:name/transactions").get(dump_transactions);
         app.at("/wallets/:name/transactions/:txhash").get(get_tx);
+        app.at("/wallets/:name/transactions/:txhash/balance")
+            .get(get_tx_balance);
         app.at("/wallets/:name/transactions/:txhash")
             .delete(force_revert_tx);
         app.listen(args.listen).await?;
@@ -274,6 +276,19 @@ async fn dump_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .map_err(to_notfound)?;
     let coins = wallet.get_coin_mapping(true, false).await;
     Body::from_json(&coins.into_iter().collect::<Vec<_>>())
+}
+
+async fn dump_transactions(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let (wallet, _) = req
+        .state()
+        .get_wallet(&wallet_name)
+        .await
+        .context("not found")
+        .map_err(to_notfound)?;
+    let transactions = wallet.get_transaction_history().await;
+    Body::from_json(&transactions)
 }
 
 async fn lock_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -401,6 +416,45 @@ async fn force_revert_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     todo!()
 }
 
+async fn get_tx_balance(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let (wallet, network) = req
+        .state()
+        .get_wallet(&wallet_name)
+        .await
+        .context("wtf")
+        .map_err(to_badreq)?;
+    let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
+    let raw = wallet
+        .get_transaction(txhash.into(), req.state().client(network).snapshot().await?)
+        .await
+        .map_err(to_badgateway)?
+        .context("not found")
+        .map_err(to_notfound)?;
+    // Is this self-originated? We check the covenants
+    let self_originated = raw.covenants.iter().any(|c| c.hash() == wallet.address().0);
+    // Total balance out
+    let mut balance: BTreeMap<String, i128> = BTreeMap::new();
+    // Add all outputs to balance
+    for (idx, output) in raw.outputs.iter().enumerate() {
+        let coinid = raw.output_coinid(idx as u8);
+        let denom_key = hex::encode(output.denom.to_bytes());
+        // first we *deduct* any balance if this self-originated
+        if self_originated {
+            *balance.entry(denom_key).or_default() -= output.value.0 as i128;
+        }
+        // then, if we find this value in our coins, we add it back. this turns out to take care of swap tx well
+        if let Some(ours) = wallet.get_one_coin(coinid).await {
+            let denom_key = hex::encode(ours.denom.to_bytes());
+            if ours.covhash == wallet.address() {
+                *balance.entry(denom_key).or_default() += ours.value.0 as i128;
+            }
+        }
+    }
+    Body::from_json(&(self_originated, balance))
+}
+
 async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     check_auth(&req)?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
@@ -412,7 +466,7 @@ async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .map_err(to_badreq)?;
     let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
     let raw = wallet
-        .get_transaction(txhash.into())
+        .get_cached_transaction(txhash.into())
         .await
         .context("not found")
         .map_err(to_notfound)?;

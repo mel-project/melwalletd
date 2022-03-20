@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::Path,
     time::Instant,
 };
@@ -182,8 +182,52 @@ impl Wallet {
         self.covhash
     }
 
-    /// Obtains a transaction.
-    pub async fn get_transaction(&self, txhash: TxHash) -> Option<Transaction> {
+    /// Obtains a transaction, whether cached or not. Must provide a snapshot to retrieve non-cached transactions.
+    pub async fn get_transaction(
+        &self,
+        txhash: TxHash,
+        snapshot: ValClientSnapshot,
+    ) -> anyhow::Result<Option<Transaction>> {
+        // if cached, get cached
+        if let Some(tx) = self.get_cached_transaction(txhash).await {
+            return Ok(Some(tx));
+        }
+        // otherwise, let's try to find a coinid that came from this txhash. (otherwise this txhash isn't even relevant and we don't care)
+        let (_, cdh) = {
+            let mut ctr = 0;
+            loop {
+                if ctr > 10 {
+                    return Ok(None);
+                }
+                let coinid = CoinID::new(txhash, ctr);
+                if let Some(confirm) = self.get_coin_confirmation(coinid).await {
+                    break (coinid, confirm);
+                }
+                ctr += 1;
+            }
+        };
+        // now great, we've found a relevant coin and where that coin was created. this gives us enough info to find the actual transaction.
+        let txn = if let Some(txn) = snapshot
+            .get_older(cdh.height)
+            .await?
+            .get_transaction(txhash)
+            .await?
+        {
+            txn
+        } else {
+            return Ok(None);
+        };
+        // now we can actually put it back into the cache so that next time we don't need to do all this.
+        let conn = self.pool.get_conn().await;
+        conn.execute(
+            "insert into transactions values ($1, $2) on conflict do nothing",
+            params![txhash.to_string(), txn.stdcode()],
+        )?;
+        Ok(Some(txn))
+    }
+
+    /// Obtains a cached transaction.
+    pub async fn get_cached_transaction(&self, txhash: TxHash) -> Option<Transaction> {
         let conn = self.pool.get_conn().await;
         let blob: Vec<u8> = conn
             .query_row(
@@ -204,6 +248,31 @@ impl Wallet {
             *toret.entry(data.denom).or_default() += data.value;
         }
         toret
+    }
+
+    /// Obtains transaction history.
+    pub async fn get_transaction_history(&self) -> Vec<(TxHash, Option<BlockHeight>)> {
+        // We infer the transaction history through our coin confirmations
+        let conn = self.pool.get_conn().await;
+        let mut stmt = conn
+            .prepare_cached(
+                r"select coins.coinid, height from 
+        coins left join coin_confirmations
+        on coins.coinid = coin_confirmations.coinid
+        where covhash = $1",
+            )
+            .unwrap();
+        let mut rows = stmt.query(params![self.covhash.to_string()]).unwrap();
+        let mut toret = HashMap::new();
+        while let Ok(Some(row)) = rows.next() {
+            let coinid: String = row.get(0).unwrap();
+            let coinid: CoinID = coinid.parse().unwrap();
+            let height: Option<u64> = row.get(1).unwrap();
+            toret.insert(coinid.txhash, height.map(|h| h.into()));
+        }
+        let mut out = toret.into_iter().collect::<Vec<_>>();
+        out.sort_unstable_by_key(|x| x.1);
+        out
     }
 
     /// Gets all the coins in the wallet, filtered by confirmation and spent status.
@@ -353,13 +422,31 @@ impl Wallet {
                         .checked_sub(*sum);
                     if let Some(difference) = difference {
                         if difference.0 > 0 || *cointype == Denom::Mel {
-                            // We *always* make at least one change output
-                            change.push(CoinData {
-                                covhash: self.covhash,
-                                value: difference,
-                                denom: *cointype,
-                                additional_data: vec![],
-                            })
+                            // We make TWO change outputs, to maximize parallelization
+                            // TODO: does this create indefinitely many UTXOs? That'd be bad
+                            if difference.0 >= 2 {
+                                let first_half = difference / 2;
+                                let second_half = difference - first_half;
+                                change.push(CoinData {
+                                    covhash: self.covhash,
+                                    value: first_half,
+                                    denom: *cointype,
+                                    additional_data: vec![],
+                                });
+                                change.push(CoinData {
+                                    covhash: self.covhash,
+                                    value: second_half,
+                                    denom: *cointype,
+                                    additional_data: vec![],
+                                })
+                            } else {
+                                change.push(CoinData {
+                                    covhash: self.covhash,
+                                    value: difference,
+                                    denom: *cointype,
+                                    additional_data: vec![],
+                                })
+                            }
                         }
                     } else {
                         return Direction::High(Err(anyhow::anyhow!(
@@ -488,8 +575,8 @@ impl Wallet {
         Ok(())
     }
 
-    /// Gets the confirmation status of a coin.
-    pub async fn get_coin_confirmation(&self, coin_id: CoinID) -> Option<CoinDataHeight> {
+    /// Gets any coin.
+    pub async fn get_one_coin(&self, coin_id: CoinID) -> Option<CoinData> {
         let conn = self.pool.get_conn().await;
         let result: (String, String, Vec<u8>, Vec<u8>) = conn
             .query_row(
@@ -505,6 +592,13 @@ impl Wallet {
             denom: Denom::from_bytes(&result.2).unwrap(),
             additional_data: result.3,
         };
+        Some(cd)
+    }
+
+    /// Gets the confirmation status of a coin.
+    pub async fn get_coin_confirmation(&self, coin_id: CoinID) -> Option<CoinDataHeight> {
+        let coindata = self.get_one_coin(coin_id).await?;
+        let conn = self.pool.get_conn().await;
         let height: u64 = conn
             .query_row(
                 "select height from coin_confirmations where coinid = $1",
@@ -515,7 +609,7 @@ impl Wallet {
             .unwrap()?;
         Some(CoinDataHeight {
             height: height.into(),
-            coin_data: cd,
+            coin_data: coindata,
         })
     }
 

@@ -645,17 +645,25 @@ impl Wallet {
             anyhow::bail!("remote coin list is bad")
         }
         let mut coin_list = BTreeMap::new();
+        let mut potential_coins = vec![];
         for coinid in remote_coin_list.iter().copied() {
             if let Some(cdh) = self.get_coin_confirmation(coinid).await {
                 coin_list.insert(coinid, cdh);
             } else {
-                log::debug!("resolving coinid {} => {}", coinid, coin_list.len());
-                let cdh = snapshot
-                    .get_coin(coinid)
-                    .await?
-                    .context("self-contradictory coin list")?;
-                coin_list.insert(coinid, cdh);
+                let snapshot = snapshot.clone();
+                let task = smolscale::spawn(async move {
+                    snapshot
+                        .get_coin(coinid)
+                        .await?
+                        .context("self-contradictory coin list")
+                });
+                potential_coins.push((coinid, task));
             }
+        }
+        for (coinid, task) in potential_coins {
+            log::debug!("resolving coinid {} => {}", coinid, coin_list.len());
+            let cdh = task.await?;
+            coin_list.insert(coinid, cdh);
         }
 
         // We take care of all disappearing coins

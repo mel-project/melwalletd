@@ -13,9 +13,11 @@ use crate::{
     walletdata::WalletData,
 };
 
+use anyhow::Context;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use smol::future::FutureExt;
+use smol_timeout::TimeoutExt;
 use tap::TapFallible;
 use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
@@ -214,18 +216,23 @@ async fn confirm_task(database: Database, client: ValClient) {
         log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());
         match client.snapshot().await {
             Ok(snap) => {
-                for wallet in possible_wallets {
-                    if let Some(wallet) = database.get_wallet(&wallet).await {
-                        let _ = wallet
+                for wname in possible_wallets {
+                    if let Some(wallet) = database.get_wallet(&wname).await {
+                        let r = wallet
                             .network_sync(snap.clone())
-                            .await
-                            .tap_err(|err| log::warn!("failed sync: {:?}", err));
+                            .timeout(Duration::from_secs(120))
+                            .await;
+                        match r {
+                            None => log::warn!("sync {} timed out", wname),
+                            Some(Err(err)) => log::warn!("sync {} failed: {:?}", wname, err),
+                            _ => (),
+                        }
                     }
                 }
                 let _ = database
                     .retransmit_pending(snap)
-                    .await
-                    .tap_err(|err| log::warn!("failed retransmit: {:?}", err));
+                    .timeout(Duration::from_secs(10))
+                    .await;
             }
             Err(err) => {
                 log::warn!("failed to snap: {:?}", err);

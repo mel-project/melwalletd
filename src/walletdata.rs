@@ -312,7 +312,6 @@ impl WalletData {
             }
             _ => max_fee,
         };
-        dbg!(max_fee);
         let (_, (_, val)) = binary_search::binary_search(
             (0u128, Err(anyhow::anyhow!("nothing"))),
             (max_fee.0, Err(anyhow::anyhow!("nothing"))),

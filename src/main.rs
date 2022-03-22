@@ -439,7 +439,11 @@ async fn get_tx_balance(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     // Total balance out
     let mut balance: BTreeMap<String, i128> = BTreeMap::new();
     // Add all outputs to balance
-    *balance.entry(hex::encode(Denom::Mel)).or_default() -= ours.fee.0 as i128;
+    if self_originated {
+        *balance
+            .entry(hex::encode(Denom::Mel.to_bytes()))
+            .or_default() -= raw.fee.0 as i128;
+    }
     for (idx, output) in raw.outputs.iter().enumerate() {
         let coinid = raw.output_coinid(idx as u8);
         let denom_key = hex::encode(output.denom.to_bytes());

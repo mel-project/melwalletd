@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    future::Future,
     path::Path,
     time::Instant,
 };
@@ -186,7 +187,7 @@ impl Wallet {
     pub async fn get_transaction(
         &self,
         txhash: TxHash,
-        snapshot: ValClientSnapshot,
+        fut_snapshot: impl Future<Output = anyhow::Result<ValClientSnapshot>>,
     ) -> anyhow::Result<Option<Transaction>> {
         // if cached, get cached
         if let Some(tx) = self.get_cached_transaction(txhash).await {
@@ -207,7 +208,8 @@ impl Wallet {
             }
         };
         // now great, we've found a relevant coin and where that coin was created. this gives us enough info to find the actual transaction.
-        let txn = if let Some(txn) = snapshot
+        let txn = if let Some(txn) = fut_snapshot
+            .await?
             .get_older(cdh.height)
             .await?
             .get_transaction(txhash)

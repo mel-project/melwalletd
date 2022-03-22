@@ -427,7 +427,9 @@ async fn get_tx_balance(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .map_err(to_badreq)?;
     let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
     let raw = wallet
-        .get_transaction(txhash.into(), req.state().client(network).snapshot().await?)
+        .get_transaction(txhash.into(), async {
+            Ok(req.state().client(network).snapshot().await?)
+        })
         .await
         .map_err(to_badgateway)?
         .context("not found")

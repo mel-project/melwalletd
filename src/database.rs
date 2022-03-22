@@ -270,6 +270,11 @@ impl Wallet {
             let coinid: String = row.get(0).unwrap();
             let coinid: CoinID = coinid.parse().unwrap();
             let height: Option<u64> = row.get(1).unwrap();
+            if let Some(height) = height {
+                if coinid == CoinID::proposer_reward(height.into()) {
+                    continue;
+                }
+            }
             toret.insert(coinid.txhash, height.map(|h| h.into()));
         }
         let mut out = toret.into_iter().collect::<Vec<_>>();

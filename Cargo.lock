@@ -1517,9 +1517,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.14"
+version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
+checksum = "6389c490849ff5bc16be905ae24bc913a9c8892e19b2341dbc175e14c341c2b8"
 dependencies = [
  "cfg-if 1.0.0",
  "value-bag",
@@ -2728,9 +2728,9 @@ dependencies = [
 
 [[package]]
 name = "themelio-nodeprot"
-version = "0.10.12"
+version = "0.10.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7516df73a7f02b7345c822baf19518e49ae784b4f81c1a26d5dd92212c8cf78b"
+checksum = "e4ae1ba2312aabc7f11f40faf497dfbc2ce69f4914e6bfd1f89c1de887b2739d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2741,6 +2741,7 @@ dependencies = [
  "lru",
  "melnet",
  "novasmt",
+ "once_cell",
  "serde",
  "smol",
  "smolscale",

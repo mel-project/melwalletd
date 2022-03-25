@@ -17,7 +17,7 @@ use tap::Tap;
 use themelio_nodeprot::ValClient;
 use themelio_stf::PoolKey;
 use themelio_structs::{
-    BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, Transaction, TxHash, TxKind,
+    BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, Transaction, TxKind,
 };
 use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
@@ -507,7 +507,7 @@ async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
     if confirmed_height.is_none() {
         // Must be pending
-        if !wallet.is_pending(txhash) {
+        if !wallet.is_pending(txhash.into()).await {
             Err(anyhow::anyhow!(
                 "no longer pending but not confirmed; probably gave up"
             ))

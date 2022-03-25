@@ -638,6 +638,13 @@ impl Wallet {
         // The basic idea is that we get the list of coins from the remote, then add them all to the wallet.
         // However, we also need to take care of "disappearing" coins. If we have a confirmed coin that is no longer in the latest set, it must have been spent somewhere along the way. If we don't already have the transactions that spends it in the "spends", we must find that transaction through a binary search between the block where that coin was confirmed and the current block --- otherwise we cannot mark that coin as spent.
 
+        // First find the pending count
+        let pending_count: u64 = {
+            let conn = self.pool.get_conn().await;
+            conn.query_row("select count(txhash) from pending", params![], |r| r.get(0))
+                .unwrap()
+        };
+
         // First step is to get the list of coins
         // TODO something more efficient
         let remote_coin_count = snapshot
@@ -646,7 +653,11 @@ impl Wallet {
             .unwrap_or_default();
         // Then, we compare with the coins we already have
         let existing_coins = self.get_coin_mapping(true, false).await;
-        if existing_coins.len() == remote_coin_count as usize {
+        if existing_coins.len() == remote_coin_count as usize
+            && pending_count == 0
+            && fastrand::f64() < 0.95
+        // occasionally do a full sync
+        {
             return Ok(());
         }
         log::debug!(

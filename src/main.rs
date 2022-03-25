@@ -472,6 +472,9 @@ async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .context("wtf")
         .map_err(to_badreq)?;
     let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
+
+    // Must either be pending or
+
     let raw = wallet
         .get_cached_transaction(txhash.into())
         .await
@@ -501,6 +504,16 @@ async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
             }
         })
         .collect();
+
+    if confirmed_height.is_none() {
+        // Must be pending
+        if !wallet.is_pending(txhash) {
+            Err(anyhow::anyhow!(
+                "no longer pending but not confirmed; probably gave up"
+            ))
+            .map_err(to_notfound)?;
+        }
+    }
     Body::from_json(&TransactionStatus {
         raw,
         confirmed_height,

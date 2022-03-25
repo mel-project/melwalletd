@@ -243,6 +243,19 @@ impl Wallet {
         Some(txn)
     }
 
+    /// Check whether a particular txhash is pending.
+    pub async fn is_pending(&self, txhash: TxHash) -> bool {
+        let conn = self.pool.get_conn().await;
+        conn.query_row(
+            "select txhash from pending where txhash = $1",
+            params![txhash.to_string()],
+            |_| Ok(()),
+        )
+        .optional()
+        .unwrap()
+        .is_some()
+    }
+
     /// Gets the balance by denomination.
     pub async fn get_balances(&self) -> BTreeMap<Denom, CoinValue> {
         let mut toret = BTreeMap::new();

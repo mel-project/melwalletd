@@ -13,12 +13,10 @@ use crate::{
     walletdata::WalletData,
 };
 
-use anyhow::Context;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use smol::future::FutureExt;
 use smol_timeout::TimeoutExt;
-use tap::TapFallible;
 use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
 use themelio_structs::{Address, CoinValue, Denom, NetID};
@@ -118,6 +116,18 @@ impl AppState {
             }
         }
         Some(())
+    }
+
+    /// Dumps a particular private key. Use carefully!
+    pub fn get_secret_key(&self, name: &str, pwd: Option<String>) -> Option<Ed25519SK> {
+        let enc = self.secrets.load(name)?;
+        match enc {
+            PersistentSecret::Plaintext(sk) => Some(sk),
+            PersistentSecret::PasswordEncrypted(enc) => {
+                let decrypted = enc.decrypt(&pwd?)?;
+                Some(decrypted)
+            }
+        }
     }
 
     /// Locks a particular wallet.

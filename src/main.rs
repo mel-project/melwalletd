@@ -7,6 +7,7 @@ mod walletdata;
 use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
+use base32::Alphabet;
 use http_types::headers::HeaderValue;
 use multi::MultiWallet;
 use serde::Deserialize;
@@ -152,6 +153,8 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name").put(create_wallet);
         app.at("/wallets/:name/lock").post(lock_wallet);
         app.at("/wallets/:name/unlock").post(unlock_wallet);
+        app.at("/wallets/:name/export-sk")
+            .post(export_sk_from_wallet);
         app.at("/wallets/:name/check").put(check_wallet);
         app.at("/wallets/:name/coins").get(dump_coins);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
@@ -312,6 +315,23 @@ async fn unlock_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .context("incorrect password")
         .map_err(to_forbidden)?;
     Ok("".into())
+}
+
+async fn export_sk_from_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    #[derive(Deserialize)]
+    struct Req {
+        password: Option<String>,
+    }
+    let wallet_name = req.param("name").map(|v| v.to_string())?;
+    let request: Req = req.body_json().await?;
+    // attempt to unlock
+    let secret = req
+        .state()
+        .get_secret_key(&wallet_name, request.password)
+        .context("incorrect password")
+        .map_err(to_forbidden)?;
+    Ok(base32::encode(Alphabet::Crockford, &secret.0[..32]).into())
 }
 
 async fn prepare_stake_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -576,10 +596,10 @@ fn to_badgateway<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -
     tide::Error::new(StatusCode::BadGateway, e)
 }
 
-fn notfound_with(s: String) -> tide::Error {
-    tide::Error::new(StatusCode::NotFound, anyhow::anyhow!("{s}"))
-}
+// fn notfound_with(s: String) -> tide::Error {
+//     tide::Error::new(StatusCode::NotFound, anyhow::anyhow!("{s}"))
+// }
 
-fn wallet_notfound() -> tide::Error {
-    notfound_with("wallet not found".into())
-}
+// fn wallet_notfound() -> tide::Error {
+//     notfound_with("wallet not found".into())
+// }

@@ -1573,6 +1573,7 @@ dependencies = [
  "acidjson",
  "anyhow",
  "atomicwrites",
+ "base32",
  "binary-search",
  "crypto_api",
  "crypto_api_chachapoly",

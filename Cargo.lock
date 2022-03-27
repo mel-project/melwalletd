@@ -305,6 +305,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-recursion"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cda8f4bcc10624c4e85bc66b3f452cca98cfa5ca002dc83a16aad2367641bea"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "async-session"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -341,9 +352,9 @@ dependencies = [
 
 [[package]]
 name = "async-std"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8056f1455169ab86dd47b47391e4ab0cbd25410a70e9fe675544f49bafaf952"
+checksum = "52580991739c5cdb36cde8b2a516371c0a3b70dda36d916cc08b82372916808c"
 dependencies = [
  "async-channel",
  "async-global-executor",
@@ -375,9 +386,9 @@ checksum = "30696a84d817107fc028e049980e09d5e140e8da8f1caeb17e8e950658a3cea9"
 
 [[package]]
 name = "async-trait"
-version = "0.1.52"
+version = "0.1.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061a7acccaa286c011ddc30970520b98fa40e00c9d644633fb26b5fc63a265e3"
+checksum = "ed6aa3524a2dfcf9fe180c51eae2b58738348d819517ceadf95789c51fff7600"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1542,9 +1553,9 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "melnet"
-version = "0.2.11"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b557a84786772a7f61620a0bd980a8292a0835d4a748af2b65a8bd7e0e61917"
+checksum = "3219185941d69538983103611921d8c4caf64db4b830fb53d21ce711441a4752"
 dependencies = [
  "anyhow",
  "async-net",
@@ -2008,9 +2019,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.16"
+version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4af2ec4714533fcdf07e886f17025ace8b997b9ce51204ee69b6da831c3da57"
+checksum = "632d02bff7f874a36f33ea8bb416cd484b90cc66c1194b1a1110d067a7013f58"
 dependencies = [
  "proc-macro2",
 ]
@@ -2119,9 +2130,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.2.11"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8380fe0152551244f0747b1bf41737e0f8a74f97a14ccefd1148187271634f3c"
+checksum = "8ae183fc1b06c149f0c1793e1eb447c8b04bfe46d48e9e48bfb8d2d7ed64ecf0"
 dependencies = [
  "bitflags",
 ]
@@ -2289,12 +2300,11 @@ dependencies = [
 
 [[package]]
 name = "serde-big-array"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18b20e7752957bbe9661cff4e0bb04d183d0948cdab2ea58cdb9df36a61dfe62"
+checksum = "cd31f59f6fe2b0c055371bb2f16d7f0aa7d8881676c04a55b1596d1a17cd10a4"
 dependencies = [
  "serde",
- "serde_derive",
 ]
 
 [[package]]
@@ -2489,9 +2499,9 @@ dependencies = [
 
 [[package]]
 name = "smolscale"
-version = "0.3.21"
+version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a276837ee2faa2ce10d4d02ba39ab74c3ef3adf4bd725afd72f16862aee87433"
+checksum = "6b9571af063153b36a0de6fd9569c23d7b919886608d1d60558b8eaaa0b697d8"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2718,9 +2728,9 @@ dependencies = [
 
 [[package]]
 name = "themelio-bootstrap"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ef7f46b09b45f46bf0411d7978d2f1fe8f0039cf850d30cc5662d9dfca91cb3"
+checksum = "6569a535530b640cfc67c26f94d913278e3b2bfb483b5ab95418a169f8e824ce"
 dependencies = [
  "once_cell",
  "themelio-nodeprot",
@@ -2729,11 +2739,12 @@ dependencies = [
 
 [[package]]
 name = "themelio-nodeprot"
-version = "0.10.13"
+version = "0.10.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4ae1ba2312aabc7f11f40faf497dfbc2ce69f4914e6bfd1f89c1de887b2739d"
+checksum = "88a2b6adf9989297047a3d892495a1355cdaf2b98b34ae68a84fb494debb459e"
 dependencies = [
  "anyhow",
+ "async-recursion",
  "async-trait",
  "bytes",
  "derivative",

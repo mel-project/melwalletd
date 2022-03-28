@@ -237,10 +237,23 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     struct Query {
         testnet: bool,
         password: Option<String>,
+        secret: Option<String>,
     }
     let query: Query = req.body_json().await?;
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let (_, sk) = tmelcrypt::ed25519_keygen();
+    let sk = if let Some(secret) = query.secret {
+        // We must reconstruct the secret key using the ed25519-dalek library
+        let secret =
+            base32::decode(Alphabet::Crockford, &secret).context("cannot decode secret key")?;
+        let secret = ed25519_dalek::SecretKey::from_bytes(&secret)?;
+        let public: ed25519_dalek::PublicKey = (&secret).into();
+        let mut vv = [0u8; 64];
+        vv[0..32].copy_from_slice(&secret.to_bytes());
+        vv[32..].copy_from_slice(&public.to_bytes());
+        Ed25519SK(vv)
+    } else {
+        tmelcrypt::ed25519_keygen().1
+    };
     req.state()
         .create_wallet(
             &wallet_name,

@@ -17,7 +17,7 @@ impl ConnPool {
     /// Creates a new connection pool to the SQLite database at the specified path.
     pub fn open(path: impl AsRef<Path>) -> rusqlite::Result<Self> {
         let (send_conn, recv_conn) = smol::channel::bounded(64);
-        for _ in 0..64 {
+        for _ in 0..8 {
             let conn = Connection::open(path.as_ref())?;
             conn.query_row("pragma journal_mode=WAL", [], |_| Ok(()))?;
             conn.execute("pragma synchronous=NORMAL", [])?;

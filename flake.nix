@@ -1,7 +1,7 @@
 {
   description = "Themelio wallet daemon";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-20.09";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-21.11";
   inputs.flake-utils.url = "github:numtide/flake-utils";
   inputs.fenix = {
     url = "github:nix-community/fenix";
@@ -34,9 +34,9 @@
         # Rust toolchain
         toolchain = with fenix.packages.${system};
           combine [
-            minimal.rustc
-            minimal.cargo
-            targets.${target}.latest.rust-std
+            stable.rustc
+            stable.cargo
+            #targets.${target}.stable.rust-std
           ];
 
         # To read melwalletd project metadata
@@ -48,8 +48,9 @@
             cargo = toolchain;
             rustc = toolchain;
           }).buildPackage {
-            src = ./.;
-            CARGO_BUILD_TARGET = target;
+            pname = "melwalletd";
+            root = ./.;
+            #CARGO_BUILD_TARGET = target;
             #CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER =
               #"${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc}/bin/${target}-gcc";
           };

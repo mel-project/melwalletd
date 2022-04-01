@@ -66,6 +66,8 @@ fn check_auth<T>(req: &Request<T>) -> tide::Result<()> {
 
 fn main() -> anyhow::Result<()> {
     println!(speedup::optimise!("SPEEDING UP!!!"));
+    println!(speedup::optimise!("SPEEDING UP!!!"));
+    println!(speedup::optimise!("SPEEDING UP!!!"));
 
     smolscale::block_on(async {
         let log_conf = std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,warn".into());

@@ -305,7 +305,7 @@ impl Wallet {
         let stmt = match (confirmed, ignore_pending) {
             (true, true) => {
                 r"select coinid, value, denom, additional_data from coins where 
-                covhash = $1 
+                covhash = $1
                 and exists (select height from coin_confirmations where coin_confirmations.coinid = coins.coinid)
                 and not exists (select txhash from spends where spends.coinid = coins.coinid 
                     and not exists (select txhash from pending where spends.txhash = pending.txhash))"
@@ -319,12 +319,16 @@ impl Wallet {
             (false, true) => {
                 r"select coinid,  value, denom, additional_data from coins where 
                 covhash = $1
+                and (exists (select coinid from coin_confirmations where coin_confirmations.coinid = coins.coinid)
+                    or exists (select coinid from pending_coins where pending_coins.coinid = coins.coinid))
                 and not exists (select txhash from spends where spends.coinid = coins.coinid 
                     and not exists (select txhash from pending where spends.txhash = pending.txhash))"
             }
             (false, false) => {
                 r"select coinid,  value, denom, additional_data from coins where 
                 covhash = $1
+                and (exists (select coinid from coin_confirmations where coin_confirmations.coinid = coins.coinid)
+                     or exists (select coinid from pending_coins where pending_coins.coinid = coins.coinid))
                 and not exists (select txhash from spends where spends.coinid = coins.coinid)"
             }
         };

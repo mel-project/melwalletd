@@ -39,6 +39,10 @@ impl Database {
             "create table if not exists coins (coinid primary key, covhash, value, denom, additional_data)",
             [],
         )?;
+        conn.execute(
+            "create index if not exists coins_index on coins(covhash)",
+            [],
+        )?;
         // all confirmed coins
         conn.execute(
             "create table if not exists coin_confirmations (coinid primary key, height not null)",
@@ -145,7 +149,6 @@ impl Database {
 
     /// Retransmit pending transactions
     pub async fn retransmit_pending(&self, snapshot: ValClientSnapshot) -> anyhow::Result<()> {
-        log::debug!("called retransmit");
         let mut conn = self.pool.get_conn().await;
         let txn = conn.transaction()?;
         let mut stmt =
@@ -259,6 +262,7 @@ impl Wallet {
     /// Gets the balance by denomination.
     pub async fn get_balances(&self) -> BTreeMap<Denom, CoinValue> {
         let mut toret = BTreeMap::new();
+        log::trace!("calling get_coin_mapping from get_balances");
         for (_, data) in self.get_coin_mapping(false, false).await {
             *toret.entry(data.denom).or_default() += data.value;
         }
@@ -301,6 +305,8 @@ impl Wallet {
         confirmed: bool,
         ignore_pending: bool,
     ) -> BTreeMap<CoinID, CoinData> {
+        let start = Instant::now();
+        scopeguard::defer!(log::trace!("get_coin_mapping took {:?}", start.elapsed()));
         let conn = self.pool.get_conn().await;
         let stmt = match (confirmed, ignore_pending) {
             (true, true) => {
@@ -375,6 +381,7 @@ impl Wallet {
                 .context("mandatory input not found in wallet")?;
             mandatory_inputs.insert(input, coindata.clone());
         }
+        log::trace!("calling get_coin_mapping from prepare");
         let unspent_coins = self.get_coin_mapping(true, false).await;
         let gen_transaction = |fee| {
             log::debug!("trying with a fee of {} MEL", fee);
@@ -656,6 +663,7 @@ impl Wallet {
             .await?
             .unwrap_or_default();
         // Then, we compare with the coins we already have
+        log::trace!("calling coin_mapping from sync");
         let existing_coins = self.get_coin_mapping(true, false).await;
         if existing_coins.len() == remote_coin_count as usize
             && pending_count == 0
@@ -664,12 +672,6 @@ impl Wallet {
         {
             return Ok(());
         }
-        log::debug!(
-            "wallet {} has {} confirmed coins instead of expected {}",
-            self.name,
-            existing_coins.len(),
-            remote_coin_count,
-        );
         // reconstruct the coin list
         let remote_coin_list = snapshot
             .get_raw()
@@ -687,10 +689,12 @@ impl Wallet {
             } else {
                 let snapshot = snapshot.clone();
                 let task = smolscale::spawn(async move {
-                    snapshot
+                    let start = Instant::now();
+                    let res = snapshot
                         .get_coin(coinid)
                         .await?
-                        .context("self-contradictory coin list")
+                        .context("self-contradictory coin list");
+                    res
                 });
                 potential_coins.push((coinid, task));
             }

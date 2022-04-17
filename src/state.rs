@@ -223,7 +223,7 @@ async fn confirm_task(database: Database, client: ValClient) {
     // let sent = Arc::new(Mutex::new(HashMap::new()));
     loop {
         let possible_wallets = database.list_wallets().await;
-        log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());
+        log::trace!("-- confirm loop sees {} wallets --", possible_wallets.len());
         match client.snapshot().await {
             Ok(snap) => {
                 for wname in possible_wallets {

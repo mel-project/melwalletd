@@ -10,7 +10,7 @@ use anyhow::Context;
 use base32::Alphabet;
 use http_types::headers::HeaderValue;
 use multi::MultiWallet;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use state::AppState;
 use std::fmt::Debug;
 use structopt::StructOpt;
@@ -148,6 +148,7 @@ fn main() -> anyhow::Result<()> {
         }));
         app.at("/summary").get(get_summary);
         app.at("/pools/:pair").get(get_pool);
+        app.at("/pool_info").post(get_pool_info);
         app.at("/wallets").get(list_wallets);
         app.at("/wallets/:name").get(summarize_wallet);
         app.at("/wallets/:name").put(create_wallet);
@@ -224,6 +225,75 @@ async fn get_pool(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .map_err(to_badgateway)?
         .ok_or_else(|| to_badreq(anyhow::anyhow!("pool not found")))?;
     Body::from_json(&pool_state)
+}
+
+async fn get_pool_info(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    check_auth(&req)?;
+    #[derive(Deserialize)]
+    struct Req {
+        from: String,
+        to: String,
+        value: u128,
+        testnet: bool,
+    }
+    #[derive(Serialize)]
+    struct Resp {
+        result: u128,
+        price_impact: f64,
+        poolkey: String,
+    }
+
+    let query: Req = req.body_json().await?;
+    let network = if query.testnet {
+        NetID::Testnet
+    } else {
+        NetID::Mainnet
+    };
+
+    let from = Denom::from_bytes(&hex::decode(&query.from)?).context("oh no")?;
+    let to = Denom::from_bytes(&hex::decode(&query.to)?).context("oh no")?;
+
+    let client = req.state().client(network).clone();
+    if from == to {
+        return Err(to_badreq(anyhow::anyhow!(
+            "cannot swap between identical denoms"
+        )));
+    }
+    let pool_key = PoolKey::new(from, to);
+    let pool_state = client
+        .snapshot()
+        .await
+        .map_err(to_badgateway)?
+        .get_pool(pool_key)
+        .await
+        .map_err(to_badgateway)?
+        .ok_or_else(|| to_badreq(anyhow::anyhow!("pool not found")))?;
+
+    let left_to_right = pool_key.left == from;
+
+    let r = if left_to_right {
+        let old_price = pool_state.lefts as f64 / pool_state.rights as f64;
+        let mut new_pool_state = pool_state;
+        let (_, new) = new_pool_state.swap_many(query.value, 0);
+        let new_price = new_pool_state.lefts as f64 / new_pool_state.rights as f64;
+        Resp {
+            result: new,
+            price_impact: (new_price / old_price - 1.0),
+            poolkey: hex::encode(pool_key.to_bytes()),
+        }
+    } else {
+        let old_price = pool_state.rights as f64 / pool_state.lefts as f64;
+        let mut new_pool_state = pool_state;
+        let (new, _) = new_pool_state.swap_many(0, query.value);
+        let new_price = new_pool_state.rights as f64 / new_pool_state.lefts as f64;
+        Resp {
+            result: new,
+            price_impact: (new_price / old_price - 1.0),
+            poolkey: hex::encode(pool_key.to_bytes()),
+        }
+    };
+
+    Body::from_json(&r)
 }
 
 async fn list_wallets(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -471,12 +541,12 @@ async fn get_tx_balance(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let self_originated = raw.covenants.iter().any(|c| c.hash() == wallet.address().0);
     // Total balance out
     let mut balance: BTreeMap<String, i128> = BTreeMap::new();
-    // Add all outputs to balance
-    if self_originated {
-        *balance
-            .entry(hex::encode(Denom::Mel.to_bytes()))
-            .or_default() -= raw.fee.0 as i128;
-    }
+    // // Add all outputs to balance
+    // if self_originated {
+    //     *balance
+    //         .entry(hex::encode(Denom::Mel.to_bytes()))
+    //         .or_default() -= raw.fee.0 as i128;
+    // }
     for (idx, output) in raw.outputs.iter().enumerate() {
         let coinid = raw.output_coinid(idx as u8);
         let denom_key = hex::encode(output.denom.to_bytes());

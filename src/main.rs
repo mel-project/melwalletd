@@ -656,7 +656,7 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     // we mark the TX as sent in this thread
     let txhash = tx.hash_nosigs();
     wallet
-        .commit_sent(tx, BlockHeight(u64::MAX))
+        .commit_sent(tx, BlockHeight(10000000000))
         .await
         .map_err(to_badreq)?;
     Ok(Body::from_json(&txhash)?)

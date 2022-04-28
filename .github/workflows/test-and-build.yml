@@ -46,12 +46,12 @@ jobs:
 
     container:
       image: rust:latest
-#      volumes:
-#        - /usr/local/cargo/git:/usr/local/cargo/git
-#        - /usr/local/cargo/registry:/usr/local/cargo/registry
+      volumes:
+        - /usr/local/cargo/git:/usr/local/cargo/git
+        - /usr/local/cargo/registry:/usr/local/cargo/registry
 #        - /usr/local/cargo/target:/usr/local/cargo/target
-#        - /usr/local/rustup:/usr/local/rustup
-#        - /var/lib/docker:/var/lib/docker
+        - /usr/local/rustup:/usr/local/rustup
+        - /var/lib/docker:/var/lib/docker
 
     steps:
       - name: Checkout repository

@@ -13,33 +13,33 @@ env:
   RUSTUP_HOME: "/usr/local/rustup"
 
 jobs:
-#  test-musl:
-#    runs-on: self-hosted
-#
-#    container:
-#      image: rust:latest
-#      volumes:
-#        - /usr/local/cargo/git:/usr/local/cargo/git
-#        - /usr/local/cargo/registry:/usr/local/cargo/registry
+  test-musl:
+    runs-on: self-hosted
+
+    container:
+      image: rust:latest
+      volumes:
+        - /usr/local/cargo/git:/usr/local/cargo/git
+        - /usr/local/cargo/registry:/usr/local/cargo/registry
 #        - /usr/local/cargo/target:/usr/local/cargo/target
-#        - /usr/local/rustup:/usr/local/rustup
-#        - /var/lib/docker:/var/lib/docker
-#
-#    steps:
-#      - name: Checkout repository
-#        uses: actions/checkout@v3
-#
-#      - name: Update Apt
-#        run: apt update
-#
-#      - name: Install Musl
-#        run: apt -y install musl musl-tools
-#
-#      - name: Add Musl Target Triple
-#        run: rustup target add x86_64-unknown-linux-musl
-#
-#      - name: Run tests
-#        run: cargo test --target x86_64-unknown-linux-musl --verbose
+        - /usr/local/rustup:/usr/local/rustup
+        - /var/lib/docker:/var/lib/docker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Update Apt
+        run: apt update
+
+      - name: Install Musl
+        run: apt -y install musl musl-tools
+
+      - name: Add Musl Target Triple
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Run tests
+        run: cargo test --target x86_64-unknown-linux-musl --verbose
 
   build:
     runs-on: self-hosted

@@ -29,9 +29,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: List Cache
-        run: ls -la /usr/local/cargo/target
-
       - name: Update Apt
         run: apt update
 

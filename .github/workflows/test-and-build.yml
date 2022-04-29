@@ -8,21 +8,69 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_HOME: "/usr/local/cargo/"
+  CARGO_TARGET_DIR: "/usr/local/cargo/target"
+  RUSTUP_HOME: "/usr/local/rustup"
 
 jobs:
-  build:
+  test-musl:
+    runs-on: self-hosted
 
-    runs-on: ubuntu-latest
+    container:
+      image: rust:latest
+      volumes:
+        - /usr/local/cargo/git:/usr/local/cargo/git
+        - /usr/local/cargo/registry:/usr/local/cargo/registry
+        - /usr/local/cargo/target-musl:/usr/local/cargo/target
+        - /usr/local/rustup:/usr/local/rustup
+        - /var/lib/docker:/var/lib/docker
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: List Cache
+        run: ls -la /usr/local/cargo/target
+
       - name: Update Apt
-        run: sudo apt update
+        run: apt update
+
       - name: Install Musl
-        run: sudo apt -y install musl musl-tools
+        run: apt -y install musl musl-tools
+
+      - name: Add Default Toolchain
+        run: rustup default stable
+
       - name: Add Musl Target Triple
         run: rustup target add x86_64-unknown-linux-musl
+
       - name: Run tests
         run: cargo test --target x86_64-unknown-linux-musl --verbose
-      - name: Build (Musl)
-        run: cargo build --target x86_64-unknown-linux-musl --verbose
+
+  build:
+    runs-on: self-hosted
+
+    container:
+      image: rust:latest
+      volumes:
+        - /usr/local/cargo/git:/usr/local/cargo/git
+        - /usr/local/cargo/registry:/usr/local/cargo/registry
+        - /usr/local/cargo/target-linux:/usr/local/cargo/target
+        - /usr/local/rustup:/usr/local/rustup
+        - /var/lib/docker:/var/lib/docker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: List Cache
+        run: ls -la /usr/local/cargo/target
+
+      - name: Add Default Toolchain
+        run: rustup default stable
+
+      - name: Update Rust
+        run: rustup update
+
+      - name: Build MelwalletD
+        run: cargo build --locked

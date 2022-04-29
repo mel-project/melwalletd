@@ -9,8 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_HOME: "/usr/local/cargo/"
-  CARGO_TARGET_DIR: "/usr/local/cargo/target"
   RUSTUP_HOME: "/usr/local/rustup"
+  SCCACHE_DIR: "/usr/local/sccache"
+  RUSTC_WRAPPER: "/usr/local/bin/sccache"
 
 jobs:
   test-musl:
@@ -21,7 +22,7 @@ jobs:
       volumes:
         - /usr/local/cargo/git:/usr/local/cargo/git
         - /usr/local/cargo/registry:/usr/local/cargo/registry
-        - /usr/local/cargo/target-musl:/usr/local/cargo/target
+        - /usr/local/sccache:/usr/local/sccache
         - /usr/local/rustup:/usr/local/rustup
         - /var/lib/docker:/var/lib/docker
 
@@ -29,14 +30,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: List Cache
-        run: ls -la /usr/local/cargo/target
-
       - name: Update Apt
         run: apt update
 
       - name: Install Musl
         run: apt -y install musl musl-tools
+
+      - uses: themeliolabs/actions-sccache@v1
+
+      - uses: themeliolabs/actions-mold@v1
 
       - name: Add Default Toolchain
         run: rustup default stable
@@ -45,7 +47,7 @@ jobs:
         run: rustup target add x86_64-unknown-linux-musl
 
       - name: Run tests
-        run: cargo test --target x86_64-unknown-linux-musl --verbose
+        run: mold --run cargo test --target x86_64-unknown-linux-musl --verbose
 
   build:
     runs-on: self-hosted
@@ -55,7 +57,7 @@ jobs:
       volumes:
         - /usr/local/cargo/git:/usr/local/cargo/git
         - /usr/local/cargo/registry:/usr/local/cargo/registry
-        - /usr/local/cargo/target-linux:/usr/local/cargo/target
+        - /usr/local/sccache:/usr/local/sccache
         - /usr/local/rustup:/usr/local/rustup
         - /var/lib/docker:/var/lib/docker
 
@@ -63,8 +65,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: List Cache
-        run: ls -la /usr/local/cargo/target
+      - uses: themeliolabs/actions-sccache@v1
+
+      - uses: themeliolabs/actions-mold@v1
 
       - name: Add Default Toolchain
         run: rustup default stable
@@ -73,4 +76,4 @@ jobs:
         run: rustup update
 
       - name: Build MelwalletD
-        run: cargo build --locked
+        run: mold --run cargo build --target=x86_64-unknown-linux-gnu --locked

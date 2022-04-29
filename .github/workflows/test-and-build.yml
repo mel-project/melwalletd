@@ -21,13 +21,16 @@ jobs:
       volumes:
         - /usr/local/cargo/git:/usr/local/cargo/git
         - /usr/local/cargo/registry:/usr/local/cargo/registry
-        - /usr/local/cargo/target:/usr/local/cargo/target-musl
+        - /usr/local/cargo/target-musl:/usr/local/cargo/target
         - /usr/local/rustup:/usr/local/rustup
         - /var/lib/docker:/var/lib/docker
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: List Cache
+        run: ls -la /usr/local/cargo/target
 
       - name: Update Apt
         run: apt update
@@ -52,13 +55,16 @@ jobs:
       volumes:
         - /usr/local/cargo/git:/usr/local/cargo/git
         - /usr/local/cargo/registry:/usr/local/cargo/registry
-        - /usr/local/cargo/target:/usr/local/cargo/target-linux
+        - /usr/local/cargo/target-linux:/usr/local/cargo/target
         - /usr/local/rustup:/usr/local/rustup
         - /var/lib/docker:/var/lib/docker
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: List Cache
+        run: ls -la /usr/local/cargo/target
 
       - name: Add Default Toolchain
         run: rustup default stable

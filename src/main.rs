@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, s
 use anyhow::Context;
 use base32::Alphabet;
 use http_types::headers::HeaderValue;
-use multi::MultiWallet;
+use multi::LegacyMultiWallet;
 use serde::{Deserialize, Serialize};
 use state::AppState;
 use std::fmt::Debug;
@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
                 0o700,
             );
         }
-        let multiwallet = MultiWallet::open(&args.wallet_dir)?;
+        let multiwallet = LegacyMultiWallet::open(&args.wallet_dir)?;
         log::info!(
             "opened LEGACY wallet directory: {:?}",
             multiwallet.list().collect::<Vec<_>>()
@@ -210,7 +210,7 @@ async fn get_pool(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let client = req.state().client(network).clone();
     let pool_key: PoolKey = req
         .param("pair")?
-        .replace(":", "/")
+        .replace(':', "/")
         .parse()
         .map_err(to_badreq)?;
     let pool_key = pool_key

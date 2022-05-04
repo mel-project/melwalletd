@@ -16,7 +16,7 @@ use themelio_structs::{
     TxKind,
 };
 
-use crate::walletdata::WalletData;
+use crate::walletdata::LegacyWalletData;
 
 use self::pool::ConnPool;
 
@@ -118,7 +118,7 @@ impl Database {
     }
 
     /// Restore a wallet dump.
-    pub async fn restore_wallet_dump(&self, name: &str, dump: WalletData) {
+    pub async fn restore_wallet_dump(&self, name: &str, dump: LegacyWalletData) {
         let mut conn = self.pool.get_conn().await;
         let txn = conn.transaction().unwrap();
         for (cid, cdh) in dump.unspent_coins.into_iter() {
@@ -689,12 +689,10 @@ impl Wallet {
             } else {
                 let snapshot = snapshot.clone();
                 let task = smolscale::spawn(async move {
-                    let start = Instant::now();
-                    let res = snapshot
+                    snapshot
                         .get_coin(coinid)
                         .await?
-                        .context("self-contradictory coin list");
-                    res
+                        .context("self-contradictory coin list")
                 });
                 potential_coins.push((coinid, task));
             }

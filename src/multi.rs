@@ -2,16 +2,14 @@ use acidjson::AcidJson;
 use anyhow::Context;
 use dashmap::DashMap;
 use std::path::{Path, PathBuf};
-use std::{io::prelude::*, sync::Arc};
-use themelio_stf::melvm::Covenant;
-use themelio_structs::NetID;
+use std::sync::Arc;
 
-use crate::walletdata::WalletData;
+use crate::walletdata::LegacyWalletData;
 
 /// Represents a whole directory of wallet JSON files
 #[derive(Clone)]
-pub struct MultiWallet {
-    wallet_cache: Arc<DashMap<String, AcidJson<WalletData>>>,
+pub struct LegacyMultiWallet {
+    wallet_cache: Arc<DashMap<String, AcidJson<LegacyWalletData>>>,
     dirname: PathBuf,
 }
 
@@ -19,11 +17,11 @@ fn valid_wallet_name(name: &str) -> bool {
     name.chars().all(|x| x.is_ascii_alphanumeric() || x == '_')
 }
 
-impl MultiWallet {
+impl LegacyMultiWallet {
     /// Opens a new MultiWallet.
     pub fn open(directory: &Path) -> anyhow::Result<Self> {
         std::fs::read_dir(directory).context("cannot open directory")?;
-        Ok(MultiWallet {
+        Ok(LegacyMultiWallet {
             wallet_cache: Default::default(),
             dirname: directory.to_owned(),
         })
@@ -40,7 +38,7 @@ impl MultiWallet {
     }
 
     /// Obtains a wallet by name.
-    pub fn get_wallet(&self, name: &str) -> anyhow::Result<AcidJson<WalletData>> {
+    pub fn get_wallet(&self, name: &str) -> anyhow::Result<AcidJson<LegacyWalletData>> {
         let fname = format!("{}.json", name);
         let mut fpath = self.dirname.clone();
         fpath.push(PathBuf::from(fname));
@@ -49,25 +47,5 @@ impl MultiWallet {
             .entry(name.to_string())
             .or_try_insert_with(|| AcidJson::open(&fpath))?;
         Ok(labooyah.value().clone())
-    }
-
-    /// Creates a wallet. **WARNING**: will silently overwrite any wallet with the same name.
-    pub fn create_wallet(
-        &self,
-        name: &str,
-        covenant: Covenant,
-        network: NetID,
-    ) -> anyhow::Result<()> {
-        if !valid_wallet_name(name) {
-            anyhow::bail!("invalid wallet name")
-        }
-        let wdata = WalletData::new(covenant, network);
-        let fname = format!("{}.json", name);
-        let mut fpath = self.dirname.clone();
-        fpath.push(PathBuf::from(fname));
-        atomicwrites::AtomicFile::new(fpath, atomicwrites::OverwriteBehavior::AllowOverwrite)
-            .write(|file| file.write_all(&serde_json::to_vec_pretty(&wdata).unwrap()))?;
-        self.wallet_cache.clear();
-        Ok(())
     }
 }

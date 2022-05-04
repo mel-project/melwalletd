@@ -9,8 +9,7 @@ use crate::{
     database::{Database, Wallet},
     secrets::{EncryptedSK, PersistentSecret, SecretStore},
     signer::Signer,
-    to_badgateway,
-    walletdata::WalletData,
+    walletdata::LegacyWalletData,
 };
 
 use dashmap::DashMap;
@@ -135,11 +134,6 @@ impl AppState {
         self.unlocked_signers.remove(name);
     }
 
-    /// Dumps the state of a particular wallet.
-    pub async fn dump_wallet(&self, name: &str) -> Option<WalletDump> {
-        todo!()
-    }
-
     /// Gets a wallet by name, returning the wallet handle and what network it belongs to.
     pub async fn get_wallet(&self, name: &str) -> Option<(Wallet, NetID)> {
         if let Some(wallet) = self.mainnet_db.get_wallet(name).await {
@@ -150,11 +144,6 @@ impl AppState {
                 .await
                 .map(|wallet| (wallet, NetID::Testnet))
         }
-    }
-
-    /// Replaces the content of some wallet, wholesale.
-    pub fn insert_wallet(&self, name: &str, dump: WalletData) {
-        todo!()
     }
 
     /// Creates a wallet with a given name.
@@ -191,13 +180,6 @@ impl AppState {
             &self.testnet_db
         }
     }
-
-    /// Calculates the current fee multiplier, given the network.
-    pub async fn current_fee_multiplier(&self, network: NetID) -> tide::Result<u128> {
-        let client = self.client(network).clone();
-        let snapshot = client.snapshot().await.map_err(to_badgateway)?;
-        Ok(snapshot.current_header().fee_multiplier)
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -214,7 +196,7 @@ pub struct WalletSummary {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletDump {
     pub summary: WalletSummary,
-    pub full: WalletData,
+    pub full: LegacyWalletData,
 }
 
 // task that periodically pulls random coins to try to confirm

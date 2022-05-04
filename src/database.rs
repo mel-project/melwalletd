@@ -282,7 +282,7 @@ impl Wallet {
             )
             .unwrap();
         let mut rows = stmt.query(params![self.covhash.to_string()]).unwrap();
-        let mut toret = HashMap::new();
+        let mut toret = BTreeMap::new();
         while let Ok(Some(row)) = rows.next() {
             let coinid: String = row.get(0).unwrap();
             let coinid: CoinID = coinid.parse().unwrap();
@@ -294,8 +294,9 @@ impl Wallet {
             }
             toret.insert(coinid.txhash, height.map(|h| h.into()));
         }
+        // we then go through le pending
         let mut out = toret.into_iter().collect::<Vec<_>>();
-        out.sort_unstable_by_key(|x| x.1);
+        out.sort_by_key(|x| x.1);
         out
     }
 

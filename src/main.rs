@@ -134,6 +134,9 @@ fn main() -> anyhow::Result<()> {
         app.with(
             CorsMiddleware::new()
                 .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap())
+                .allow_headers(
+                    HeaderValue::from_bytes("x-melwalletd-auth-token".as_bytes().to_vec()).unwrap(),
+                )
                 .allow_origin("*"),
         );
         // interpret errors

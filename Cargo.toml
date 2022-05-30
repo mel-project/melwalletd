@@ -15,52 +15,52 @@ version = "0.27.0"
 features = ["bundled"]
 
 [dependencies.serde]
-version = "1.0.136"
+version = "1.0.137"
 features = ["derive"]
 
 [dependencies.serde_json]
-version = "1.0.79"
+version = "1.0.81"
 features = ["arbitrary_precision"]
 
 [dependencies]
 acidjson = "0.1.2"
-anyhow = "1.0.56"
+anyhow = "1.0.57"
 base32 = "0.4.0"
 binary-search = "0.1.2"
 atomicwrites = "0.3.1"
 crypto_api = "0.2.2"
 crypto_api_chachapoly = "0.5.0"
-dashmap = "5.2.0"
+dashmap = "5.3.4"
 ed25519-dalek = "1.0.1"
 fastrand = "1.7.0"
-getrandom = "0.2.5"
+getrandom = "0.2.6"
 hex = "0.4.3"
 http-types = "2.12.0"
 # im = { version = "15.0.0", features = ["serde"] }
-log = "0.4.16"
-libc = "0.2.121"
-lru = "0.7.3"
-once_cell = "1.10.0"
+log = "0.4.17"
+libc = "0.2.126"
+lru = "0.7.6"
+once_cell = "1.12.0"
 parking_lot = "0.12.0"
 rust-argon2 = "1.0.0"
 scopeguard = "1.1.0"
 secrecy = "0.8.0"
-serde_with = "1.12.0"
+serde_with = "1.14.0"
 smol = "1.2.5"
 stdcode = "0.1.7"
 structopt = "0.3.26"
 smol-timeout = "0.6.0"
-smolscale= "0.3.23"
+smolscale= "0.3.24"
 tap = "1.0.1"
-themelio-bootstrap = "0.5.2"
-themelio-nodeprot = "0.10.14"
+themelio-bootstrap = "0.6.0"
+themelio-nodeprot = "0.11.3"
 # themelio-nodeprot = { path = "../themelio-nodeprot" }
-themelio-stf = "0.9.15"
-themelio-structs = "0.2.2"
+themelio-stf = "0.10.5"
+themelio-structs = "0.2.3"
 tide = "0.16.0"
 tmelcrypt = "0.2.4"
-tracing = "0.1.32"
-tracing-subscriber = "0.3.9"
+tracing = "0.1.34"
+tracing-subscriber = "0.3.11"
 
 # prevent key derivation from being ridiculously slow
 [profile.dev.package.rust-argon2]

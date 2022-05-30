@@ -19,7 +19,7 @@ pub struct LegacyWalletData {
     #[serde(rename = "tx_in_progress_v2", default)]
     pub tx_in_progress: BTreeMap<TxHash, (Transaction, BlockHeight)>,
     pub tx_confirmed: BTreeMap<TxHash, (Transaction, BlockHeight)>,
-    #[serde(default)]
+    #[serde(default)] 
     pub stake_list: BTreeMap<TxHash, StakeDoc>,
     pub my_covenant: Covenant,
     pub network: NetID,

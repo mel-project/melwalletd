@@ -64,7 +64,7 @@ tracing-subscriber = "0.3.11"
 
 # prevent key derivation from being ridiculously slow
 [profile.dev.package.rust-argon2]
-opt-level = 3
+opt-level = 3 
 
 [profile.release]
 panic='abort'

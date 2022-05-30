@@ -16,7 +16,7 @@ use std::fmt::Debug;
 use structopt::StructOpt;
 use tap::Tap;
 use themelio_nodeprot::ValClient;
-use themelio_stf::PoolKey;
+use themelio_structs::PoolKey;
 use themelio_structs::{
     BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, Transaction, TxKind,
 };

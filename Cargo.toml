@@ -48,7 +48,7 @@ secrecy = "0.8.0"
 serde_with = "1.14.0"
 smol = "1.2.5"
 stdcode = "0.1.7"
-structopt = "0.3.26"
+clap = { version = "3.2.10", features = ["derive"] }
 smol-timeout = "0.6.0"
 smolscale= "0.3.24"
 tap = "1.0.1"

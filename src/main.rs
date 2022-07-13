@@ -4,6 +4,8 @@ mod secrets;
 mod signer;
 mod state;
 mod walletdata;
+use std::fs::File;
+use std::io::Read;
 use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
@@ -12,6 +14,8 @@ use http_types::headers::HeaderValue;
 use multi::LegacyMultiWallet;
 use serde::{Deserialize, Serialize};
 use state::AppState;
+use tap::Tap;
+
 use std::fmt::Debug;
 use clap::Parser;
 use themelio_nodeprot::ValClient;
@@ -19,17 +23,18 @@ use themelio_structs::PoolKey;
 use themelio_structs::{
     BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, Transaction, TxKind,
 };
-use tide::security::{CorsMiddleware, Origin};
+use tide::security::{CorsMiddleware};
 use tide::{Body, Request, StatusCode};
 use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 use walletdata::{AnnCoinID, TransactionStatus};
 
 use crate::{database::Database, secrets::SecretStore, signer::Signer};
 
-#[derive(Parser)]
+
+#[derive(Parser, Clone)]
 struct Args {
     #[clap(long)]
-    wallet_dir: PathBuf,
+    wallet_dir: Option<PathBuf>,
 
     #[clap(long, default_value = "127.0.0.1:11773")]
     listen: SocketAddr,
@@ -39,16 +44,86 @@ struct Args {
 
     #[clap(long)]
     testnet_connect: Option<SocketAddr>,
+
+    #[clap(long, default_value = "*")]
+    allowed_origins: Vec<String>,
+
+    #[clap(long)]
+    config: Option<String>,
+
+}
+
+
+#[derive(Deserialize)]
+struct IntermediateConfig {
+    wallet_dir: Option<PathBuf>,
+    listen: Option<SocketAddr>,
+    mainnet_connect: Option<SocketAddr>,
+    testnet_connect: Option<SocketAddr>,
+    allowed_origins: Option<Vec<String>>,
+}
+#[derive(Deserialize)]
+struct Config {
+    wallet_dir: PathBuf,
+    listen: SocketAddr,
+    mainnet_connect: SocketAddr,
+    testnet_connect: SocketAddr,
+    allowed_origins: Vec<String>,
+}
+
+impl From<IntermediateConfig> for Config{
+    fn from(args: IntermediateConfig) -> Self {
+        Config {
+            wallet_dir: args.wallet_dir.unwrap(),
+            listen: args.listen.unwrap(),
+            mainnet_connect:  args
+            .mainnet_connect
+            .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]),
+            testnet_connect: args.testnet_connect
+            .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Testnet)[0]),
+            allowed_origins: args.allowed_origins.unwrap()
+        }
+    }
 }
 
 
 
+fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
+    let cors = origins.iter().fold(CorsMiddleware::new(), |cors, val|{
+        let s: &str = &val;
+        cors.allow_origin(s)
+    })
+    .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
+    .allow_credentials(false);
+
+    cors
+}
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
         let log_conf = std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,warn".into());
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
-        let args = Args::from_args();
+        let cmd_args = Args::from_args();
+        let cli_args = {
+            match try_config(cmd_args.config){
+                Ok(config) => {
+                    let mut config = config.clone();
+
+                    args.wallet_dir = cmd_args.wallet_dir;
+
+                    anyhow::Ok(args)
+                },
+                Err(_) => Ok(cmd_args),
+            }
+            
+        }?;
+
+        let args = Config::from(cli_args);
+        
+        
+        println!("{:?}", args.allowed_origins);
+        
+        
         
         std::fs::create_dir_all(&args.wallet_dir).context("cannot create wallet_dir")?;
         // SAFETY: this is perfectly safe because chmod cannot lead to memory unsafety.
@@ -76,9 +151,7 @@ fn main() -> anyhow::Result<()> {
                 .tap_mut(|p| p.push("testnet-wallets.db")),
         )
         .await?;
-        let mainnet_addr = args
-            .mainnet_connect
-            .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]);
+        let mainnet_addr = args.mainnet_connect
         let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
         mainnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Mainnet).unwrap());
         for wallet_name in multiwallet.list() {
@@ -104,10 +177,8 @@ fn main() -> anyhow::Result<()> {
             mainnet_db,
             testnet_db,
             secrets,
-            args.mainnet_connect
-                .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]),
+            args.mainnet_connect,
             args.testnet_connect
-                .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Testnet)[0]),
         );
 
         let mut app = tide::with_state(Arc::new(state));
@@ -155,16 +226,22 @@ fn main() -> anyhow::Result<()> {
             .delete(force_revert_tx);   
 
 
-        let cors = CorsMiddleware::new()
-        .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
-        .allow_origin(Origin::from("*"))
-        .allow_credentials(false);
+        let cors = generate_cors(args.allowed_origins);
 
         app.with(cors);
         app.listen(args.listen).await?;
 
         Ok(())
     })
+}
+
+fn try_config(filename: Option<String>) -> anyhow::Result<Config> {
+    let filename = filename.context("")?;
+    let mut config_file = File::open(filename)?;
+    let mut buf: String = "".into();
+    config_file.read_to_string(&mut buf)?;
+    let args: Config = serde_yaml::from_str(&buf)?;
+    Ok(args)
 }
 
 async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {

@@ -6,6 +6,7 @@ mod state;
 mod walletdata;
 use std::fs::File;
 use std::io::Read;
+use std::str::FromStr;
 use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
@@ -31,13 +32,13 @@ use walletdata::{AnnCoinID, TransactionStatus};
 use crate::{database::Database, secrets::SecretStore, signer::Signer};
 
 
-#[derive(Parser, Clone)]
+#[derive(Parser, Clone, Deserialize, Debug)]
 struct Args {
     #[clap(long)]
     wallet_dir: Option<PathBuf>,
 
-    #[clap(long, default_value = "127.0.0.1:11773")]
-    listen: SocketAddr,
+    #[clap(long)]
+    listen: Option<SocketAddr>,
 
     #[clap(long)]
     mainnet_connect: Option<SocketAddr>,
@@ -45,24 +46,25 @@ struct Args {
     #[clap(long)]
     testnet_connect: Option<SocketAddr>,
 
-    #[clap(long, default_value = "*")]
-    allowed_origins: Vec<String>,
+    #[clap(long)]
+    allowed_origins: Option<Vec<String>>,
 
+    #[serde(skip_deserializing)]
     #[clap(long)]
     config: Option<String>,
 
-}
+    #[serde(skip_deserializing)]
+    #[clap(long)]
+    output_config: bool,
+
+    #[serde(skip_deserializing)]
+    #[clap(long)]
+    dry_run: bool,
 
 
-#[derive(Deserialize)]
-struct IntermediateConfig {
-    wallet_dir: Option<PathBuf>,
-    listen: Option<SocketAddr>,
-    mainnet_connect: Option<SocketAddr>,
-    testnet_connect: Option<SocketAddr>,
-    allowed_origins: Option<Vec<String>>,
 }
-#[derive(Deserialize)]
+
+#[derive(Deserialize, Debug, Serialize)]
 struct Config {
     wallet_dir: PathBuf,
     listen: SocketAddr,
@@ -70,21 +72,23 @@ struct Config {
     testnet_connect: SocketAddr,
     allowed_origins: Vec<String>,
 }
-
-impl From<IntermediateConfig> for Config{
-    fn from(args: IntermediateConfig) -> Self {
-        Config {
-            wallet_dir: args.wallet_dir.unwrap(),
-            listen: args.listen.unwrap(),
+impl From<Args> for Config{
+    fn from(args: Args) -> Self {
+        let config = Config {
+            wallet_dir: args.wallet_dir.expect("Must provide wallet_dir arg"),
+            listen: args.listen.unwrap_or(SocketAddr::from_str("127.0.0.1:11773").unwrap()),
             mainnet_connect:  args
             .mainnet_connect
             .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]),
             testnet_connect: args.testnet_connect
             .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Testnet)[0]),
-            allowed_origins: args.allowed_origins.unwrap()
-        }
+            allowed_origins: args.allowed_origins.unwrap_or(vec!["*".into()]),
+        };
+
+        config
     }
 }
+
 
 
 
@@ -98,27 +102,46 @@ fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
 
     cors
 }
+
+fn unwrap_or_replace<T>(field: Option<T>, replacement: Option<T>) -> Option<T> {
+    match field {
+        Some(_) => field,
+        None => replacement,
+    }
+}
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
         let log_conf = std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,warn".into());
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
         let cmd_args = Args::from_args();
-        let cli_args = {
-            match try_config(cmd_args.config){
+        let output_config = cmd_args.output_config;
+        let dry_run = cmd_args.dry_run;
+        let args = {
+            match try_config(cmd_args.clone().config){
                 Ok(config) => {
-                    let mut config = config.clone();
+                    let mut file_config = config.clone();
 
-                    args.wallet_dir = cmd_args.wallet_dir;
+                    file_config.wallet_dir = unwrap_or_replace(cmd_args.wallet_dir, file_config.wallet_dir );
+                    file_config.listen = unwrap_or_replace(cmd_args.listen, file_config.listen);
+                    file_config.mainnet_connect = unwrap_or_replace(cmd_args.mainnet_connect, file_config.mainnet_connect);
+                    file_config.testnet_connect = unwrap_or_replace(cmd_args.testnet_connect, file_config.testnet_connect);
+                    file_config.allowed_origins = unwrap_or_replace(cmd_args.allowed_origins, file_config.allowed_origins);
 
-                    anyhow::Ok(args)
+                    anyhow::Ok(Config::from(file_config))
                 },
-                Err(_) => Ok(cmd_args),
+                Err(_) => Ok(Config::from(cmd_args)),
             }
             
         }?;
 
-        let args = Config::from(cli_args);
+        if output_config{
+                println!("{}", serde_yaml::to_string(&args).expect("Critical Failure: Unable to serialize `Config`"));
+        }
+
+        if dry_run{
+            return Ok(())
+        }
         
         
         println!("{:?}", args.allowed_origins);
@@ -151,7 +174,7 @@ fn main() -> anyhow::Result<()> {
                 .tap_mut(|p| p.push("testnet-wallets.db")),
         )
         .await?;
-        let mainnet_addr = args.mainnet_connect
+        let mainnet_addr = args.mainnet_connect;
         let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
         mainnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Mainnet).unwrap());
         for wallet_name in multiwallet.list() {
@@ -211,19 +234,19 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/unlock").post(unlock_wallet);
         app.at("/wallets/:name/export-sk")
             .post(export_sk_from_wallet);
-        app.at("/wallets/:name/check").put(check_wallet);
+        // app.at("/wallets/:name/check").put(check_wallet);
         app.at("/wallets/:name/coins").get(dump_coins);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
-        app.at("/wallets/:name/prepare-stake-tx")
-            .post(prepare_stake_tx);
+        // app.at("/wallets/:name/prepare-stake-tx")
+        //     .post(prepare_stake_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
         app.at("/wallets/:name/send-faucet").post(send_faucet);
         app.at("/wallets/:name/transactions").get(dump_transactions);
         app.at("/wallets/:name/transactions/:txhash").get(get_tx);
         app.at("/wallets/:name/transactions/:txhash/balance")
             .get(get_tx_balance);
-        app.at("/wallets/:name/transactions/:txhash")
-            .delete(force_revert_tx);   
+        // app.at("/wallets/:name/transactions/:txhash")
+        //     .delete(force_revert_tx);   
 
 
         let cors = generate_cors(args.allowed_origins);
@@ -235,12 +258,13 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-fn try_config(filename: Option<String>) -> anyhow::Result<Config> {
+fn try_config(filename: Option<String>) -> anyhow::Result<Args> {
     let filename = filename.context("")?;
     let mut config_file = File::open(filename)?;
     let mut buf: String = "".into();
     config_file.read_to_string(&mut buf)?;
-    let args: Config = serde_yaml::from_str(&buf)?;
+    let args: Args = serde_yaml::from_str(&buf)?;
+
     Ok(args)
 }
 
@@ -404,9 +428,9 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     Ok("".into())
 }
 
-async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    todo!()
-}
+// async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+//     todo!()
+// }
 
 // async fn sweep_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 //     check_auth(&req)?;
@@ -475,9 +499,9 @@ async fn export_sk_from_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<
     Ok(base32::encode(Alphabet::Crockford, &secret.0[..32]).into())
 }
 
-async fn prepare_stake_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    todo!()
-}
+// async fn prepare_stake_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+//     todo!()
+// }
 
 async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     #[derive(Deserialize)]
@@ -569,9 +593,9 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     Ok(Body::from_json(&tx.hash_nosigs())?)
 }
 
-async fn force_revert_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    todo!()
-}
+// async fn force_revert_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+//     todo!()
+// }
 
 async fn get_tx_balance(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;

@@ -292,6 +292,16 @@ async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     Body::from_json(&summary)
 }
 
+async fn summarize_wallet_raw(wallet_name: &str) -> tide::Result<Body> {
+    let summary = req
+        .state()
+        .wallet_summary(wallet_name)
+        .await
+        .context("not found")
+        .map_err(to_notfound)?;
+    Body::from_json(&summary)
+}
+
 async fn get_summary(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let query: BTreeMap<String, String> = req.query()?;
     let network = if query.get("testnet").is_some() {

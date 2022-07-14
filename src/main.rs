@@ -74,6 +74,7 @@ struct Config {
     mainnet_connect: SocketAddr,
     testnet_connect: SocketAddr,
     allowed_origins: Vec<String>,
+    network: NetID,
 }
 impl Config {
     fn new(
@@ -92,6 +93,7 @@ impl Config {
             testnet_connect: testnet_connect
                 .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Testnet)[0]),
             allowed_origins: allowed_origins.unwrap_or(vec!["*".into()]),
+            network: NetID::Mainnet,
         }
     }
 }
@@ -156,19 +158,20 @@ fn main() -> anyhow::Result<()> {
         let output_config = cmd_args.output_config;
         let dry_run = cmd_args.dry_run;
 
-        let args = match try_config(cmd_args.clone().config){
+        let config = match try_config(cmd_args.clone().config){
             Ok(config_file) => {
                 Config::from((cmd_args,config_file))
             },
             Err(_) => Config::from(cmd_args),
         };
     
-            
+        let network = config.network;
+        let db_name = "mainnet-wallets.db";
 
         if output_config {
             println!(
                 "{}",
-                serde_yaml::to_string(&args)
+                serde_yaml::to_string(&config)
                     .expect("Critical Failure: Unable to serialize `Config`")
             );
         }
@@ -177,51 +180,50 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
-        std::fs::create_dir_all(&args.wallet_dir).context("cannot create wallet_dir")?;
+        std::fs::create_dir_all(&config.wallet_dir).context("cannot create wallet_dir")?;
         
         // SAFETY: this is perfectly safe because chmod cannot lead to memory unsafety.
         unsafe {
             libc::chmod(
-                CString::new(args.wallet_dir.to_string_lossy().as_bytes().to_vec())?.as_ptr(),
+                CString::new(config.wallet_dir.to_string_lossy().as_bytes().to_vec())?.as_ptr(),
                 0o700,
             );
         }
-        let multiwallet = LegacyMultiWallet::open(&args.wallet_dir)?;
+        let multiwallet = LegacyMultiWallet::open(&config.wallet_dir)?;
         log::info!(
             "opened LEGACY wallet directory: {:?}",
             multiwallet.list().collect::<Vec<_>>()
         );
 
-        let mainnet_db = Database::open(
-            args.wallet_dir
+        let db = Database::open(
+            config.wallet_dir
                 .clone()
-                .tap_mut(|p| p.push("mainnet-wallets.db")),
+                .tap_mut(|p| p.push(db_name)),
         )
         .await?;
 
-        let mainnet_addr = args.mainnet_connect;
-        let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
-        mainnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Mainnet).unwrap());
+        let addr = config.mainnet_connect;
+        let client = ValClient::new(NetID::Mainnet, addr);
+        client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
         for wallet_name in multiwallet.list() {
             let wallet = multiwallet.get_wallet(&wallet_name)?;
-            if wallet.read().network() == NetID::Mainnet {
-                if mainnet_db.get_wallet(&wallet_name).await.is_none() {
-                    let wallet = wallet.read().clone();
-                    log::info!("restoring mainnet {}", wallet_name);
-                    mainnet_db.restore_wallet_dump(&wallet_name, wallet).await;
-                }
+            if db.get_wallet(&wallet_name).await.is_none() {
+                let wallet = wallet.read().clone();
+                log::info!("restoring mainnet {}", wallet_name);
+                db.restore_wallet_dump(&wallet_name, wallet).await;
             }
+            
         }
 
-        let mut secret_path = args.wallet_dir.clone();
+        let mut secret_path = config.wallet_dir.clone();
         secret_path.push(".secrets.json");
         let secrets = SecretStore::open(&secret_path)?;
 
         let state = AppState::new(
-            mainnet_db,
+            db,
             NetID::Mainnet,
             secrets,
-            args.mainnet_connect,
+            config.mainnet_connect,
         );
 
         let mut app = tide::with_state(Arc::new(state));
@@ -260,10 +262,10 @@ fn main() -> anyhow::Result<()> {
         // app.at("/wallets/:name/transactions/:txhash")
         //     .delete(force_revert_tx);
 
-        let cors = generate_cors(args.allowed_origins);
+        let cors = generate_cors(config.allowed_origins);
 
         app.with(cors);
-        app.listen(args.listen).await?;
+        app.listen(config.listen).await?;
 
         Ok(())
     })

@@ -31,24 +31,7 @@ use walletdata::{AnnCoinID, TransactionStatus};
 
 use crate::{database::Database, secrets::SecretStore, signer::Signer};
 
-pub struct Prefer<T: Clone>(Option<T>, Option<T>);
 
-impl <T> Prefer<T> where T: Clone{
-
-    pub fn unwrap(&self) -> T{
-        self.pick().unwrap()
-    }
-    pub fn expect(&self, msg: &str) -> T{
-        self.pick().expect(msg)
-    }
-    pub fn pick(&self) -> Option<T>{
-        if self.0.is_some(){self.0.clone()}
-        else if self.1.is_some(){self.1.clone()}
-        else {
-            self.0.clone() // force failure
-        }
-    }
-}
 
 
 #[derive(Parser, Clone, Deserialize, Debug)]
@@ -111,21 +94,6 @@ impl Config {
             allowed_origins: allowed_origins.unwrap_or(vec!["*".into()]),
         }
     }
-    fn preferenced_new(
-        wallet_dir: Prefer<PathBuf>,
-        listen: Prefer<SocketAddr>,
-        mainnet_connect: Prefer<SocketAddr>,
-        testnet_connect: Prefer<SocketAddr>,
-        allowed_origins: Prefer<Vec<String>>,
-    ) -> Config {
-        Config::new(
-            wallet_dir.pick(),
-            listen.pick(),
-            mainnet_connect.pick(),
-            testnet_connect.pick(),
-           allowed_origins.pick(),
-        )
-    }
 }
 
 impl From<Args> for Config {
@@ -144,16 +112,24 @@ impl From<Args> for Config {
 impl From<(Args, Args)> for Config{
     fn from(args: (Args, Args)) -> Self {
         let (preference, baseline) = args;
-        let config = Config::preferenced_new(
-            Prefer(preference.wallet_dir, baseline.wallet_dir),
-             Prefer(preference.listen, baseline.listen),
-             Prefer(preference.mainnet_connect, baseline.mainnet_connect),
-             Prefer(preference.mainnet_connect, baseline.mainnet_connect),
-             Prefer(preference.allowed_origins, baseline.allowed_origins)
+        let config = Config::new(
+            prefer(preference.wallet_dir, baseline.wallet_dir),
+             prefer(preference.listen, baseline.listen),
+             prefer(preference.mainnet_connect, baseline.mainnet_connect),
+             prefer(preference.mainnet_connect, baseline.mainnet_connect),
+             prefer(preference.allowed_origins, baseline.allowed_origins)
 
         );
 
         config
+    }
+}
+
+fn prefer<T>(option1: Option<T>, option2: Option<T>) -> Option<T> {
+    if option1.is_some(){option1}
+    else if option2.is_some(){option2}
+    else {
+        option1 // known failure
     }
 }
 

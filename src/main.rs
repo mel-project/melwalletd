@@ -38,13 +38,10 @@ impl <T> Prefer<T> where T: Clone{
     pub fn unwrap(&self) -> T{
         self.pick().unwrap()
     }
-    pub fn expect(&self, msg: &str) -> T {
-        self.expect_pick(msg).unwrap()
+    pub fn expect(&self, msg: &str) -> T{
+        self.pick().expect(msg)
     }
     pub fn pick(&self) -> Option<T>{
-        self.expect_pick("")
-    }
-    pub fn expect_pick(&self, msg: &str) -> Option<T>{
         if self.0.is_some(){self.0.clone()}
         else if self.1.is_some(){self.1.clone()}
         else {
@@ -122,24 +119,12 @@ impl Config {
         allowed_origins: Prefer<Vec<String>>,
     ) -> Config {
         Config::new(
-            wallet_dir.expect("Must provide `wallet_dir`"),
+            wallet_dir.expect("Must provide arg: `wallet-dir`"),
             listen.pick(),
             mainnet_connect.pick(),
             testnet_connect.pick(),
            allowed_origins.pick(),
         )
-    }
-}
-impl From<Args> for Config {
-    fn from(args: Args) -> Self {
-        let config = Config::new(
-            args.wallet_dir.expect("Must provide wallet_dir arg"),
-            args.listen,
-            args.mainnet_connect,
-            args.testnet_connect,
-            args.allowed_origins,
-        );
-        config
     }
 }
 
@@ -172,12 +157,6 @@ fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
     cors
 }
 
-fn unwrap_or_replace<T>(field: Option<T>, replacement: Option<T>) -> Option<T> {
-    match field {
-        Some(_) => field,
-        None => replacement,
-    }
-}
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
         let log_conf = std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,warn".into());
@@ -205,9 +184,8 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
 
-        println!("{:?}", args.allowed_origins);
-
         std::fs::create_dir_all(&args.wallet_dir).context("cannot create wallet_dir")?;
+        
         // SAFETY: this is perfectly safe because chmod cannot lead to memory unsafety.
         unsafe {
             libc::chmod(
@@ -227,12 +205,7 @@ fn main() -> anyhow::Result<()> {
                 .tap_mut(|p| p.push("mainnet-wallets.db")),
         )
         .await?;
-        let testnet_db = Database::open(
-            args.wallet_dir
-                .clone()
-                .tap_mut(|p| p.push("testnet-wallets.db")),
-        )
-        .await?;
+
         let mainnet_addr = args.mainnet_connect;
         let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
         mainnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Mainnet).unwrap());
@@ -244,10 +217,6 @@ fn main() -> anyhow::Result<()> {
                     log::info!("restoring mainnet {}", wallet_name);
                     mainnet_db.restore_wallet_dump(&wallet_name, wallet).await;
                 }
-            } else if testnet_db.get_wallet(&wallet_name).await.is_none() {
-                let wallet = wallet.read().clone();
-                log::info!("restoring testnet {}", wallet_name);
-                testnet_db.restore_wallet_dump(&wallet_name, wallet).await;
             }
         }
 
@@ -257,7 +226,6 @@ fn main() -> anyhow::Result<()> {
 
         let state = AppState::new(
             mainnet_db,
-            testnet_db,
             secrets,
             args.mainnet_connect,
             args.testnet_connect,

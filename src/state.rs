@@ -23,8 +23,8 @@ use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
 pub struct AppState {
-    mainnet_db: Database,
-    testnet_db: Database,
+    database: Database,
+    network: NetID,
     clients: HashMap<NetID, ValClient>,
     unlocked_signers: DashMap<String, Arc<dyn Signer>>,
     secrets: SecretStore,
@@ -34,31 +34,26 @@ pub struct AppState {
 impl AppState {
     /// Creates a new appstate, given a mainnet and testnet server.
     pub fn new(
-        mainnet_db: Database,
-        testnet_db: Database,
+        database: Database,
         secrets: SecretStore,
         mainnet_addr: SocketAddr,
-        testnet_addr: SocketAddr,
     ) -> Self {
         let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
-        let testnet_client = ValClient::new(NetID::Testnet, testnet_addr);
         mainnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Mainnet).unwrap());
-        testnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Testnet).unwrap());
         let clients: HashMap<NetID, ValClient> = vec![
             (NetID::Mainnet, mainnet_client.clone()),
-            (NetID::Testnet, testnet_client.clone()),
         ]
         .into_iter()
         .collect();
 
         let _confirm_task = smolscale::spawn(
-            confirm_task(mainnet_db.clone(), mainnet_client)
-                .race(confirm_task(testnet_db.clone(), testnet_client)),
+            confirm_task(database.clone(), mainnet_client)
         );
+        let network =  NetID::Mainnet;
 
         Self {
-            mainnet_db,
-            testnet_db,
+            database,
+            network,
             clients,
             unlocked_signers: Default::default(),
             secrets,
@@ -68,11 +63,10 @@ impl AppState {
 
     /// Returns a summary of wallets.
     pub async fn list_wallets(&self) -> BTreeMap<String, WalletSummary> {
-        let mlist = self.mainnet_db.list_wallets().await;
-        let tlist = self.testnet_db.list_wallets().await;
+        let mlist = self.database.list_wallets().await;
         let mut toret = BTreeMap::new();
-        for name in mlist.into_iter().chain(tlist.into_iter()) {
-            let (wallet, network) = self.get_wallet(&name).await.unwrap();
+        for name in mlist.into_iter() {
+            let wallet = self.database.get_wallet(&name).await.unwrap();
             let balance = wallet.get_balances().await;
             let summary = WalletSummary {
                 detailed_balance: balance
@@ -80,7 +74,7 @@ impl AppState {
                     .map(|(k, v)| (hex::encode(&k.to_bytes()), *v))
                     .collect(),
                 total_micromel: balance.get(&Denom::Mel).copied().unwrap_or_default(),
-                network,
+                network: self.network, 
                 address: wallet.address(),
                 locked: !self.unlocked_signers.contains_key(&name),
                 staked_microsym: Default::default(),
@@ -134,18 +128,6 @@ impl AppState {
         self.unlocked_signers.remove(name);
     }
 
-    /// Gets a wallet by name, returning the wallet handle and what network it belongs to.
-    pub async fn get_wallet(&self, name: &str) -> Option<(Wallet, NetID)> {
-        if let Some(wallet) = self.mainnet_db.get_wallet(name).await {
-            Some((wallet, NetID::Mainnet))
-        } else {
-            self.testnet_db
-                .get_wallet(name)
-                .await
-                .map(|wallet| (wallet, NetID::Testnet))
-        }
-    }
-
     /// Creates a wallet with a given name.
     pub async fn create_wallet(
         &self,
@@ -155,7 +137,7 @@ impl AppState {
         pwd: Option<String>,
     ) -> anyhow::Result<()> {
         let covenant = Covenant::std_ed25519_pk_new(key.to_public());
-        self.database(network).create_wallet(name, covenant).await?;
+        self.database.create_wallet(name, covenant).await?;
         self.secrets.store(
             name.to_owned(),
             match pwd {
@@ -172,14 +154,7 @@ impl AppState {
         &self.clients[&network]
     }
 
-    /// Gets a reference to the database.
-    pub fn database(&self, network: NetID) -> &Database {
-        if network == NetID::Mainnet {
-            &self.mainnet_db
-        } else {
-            &self.testnet_db
-        }
-    }
+
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

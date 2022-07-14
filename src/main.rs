@@ -94,14 +94,14 @@ struct Config {
 }
 impl Config {
     fn new(
-        wallet_dir: PathBuf,
+        wallet_dir: Option<PathBuf>,
         listen: Option<SocketAddr>,
         mainnet_connect: Option<SocketAddr>,
         testnet_connect: Option<SocketAddr>,
         allowed_origins: Option<Vec<String>>,
     ) -> Config {
         Config {
-            wallet_dir,
+            wallet_dir: wallet_dir.expect("Must provide arg: `wallet-dir`"),
             listen: listen
                 .unwrap_or(SocketAddr::from_str("127.0.0.1:11773").unwrap()),
             mainnet_connect: mainnet_connect
@@ -119,12 +119,25 @@ impl Config {
         allowed_origins: Prefer<Vec<String>>,
     ) -> Config {
         Config::new(
-            wallet_dir.expect("Must provide arg: `wallet-dir`"),
+            wallet_dir.pick(),
             listen.pick(),
             mainnet_connect.pick(),
             testnet_connect.pick(),
            allowed_origins.pick(),
         )
+    }
+}
+
+impl From<Args> for Config {
+    fn from(args: Args) -> Self {
+        let config = Config::new(
+            args.wallet_dir,
+            args.listen,
+            args.mainnet_connect,
+            args.testnet_connect,
+            args.allowed_origins,
+        );
+        config
     }
 }
 
@@ -167,8 +180,12 @@ fn main() -> anyhow::Result<()> {
         let output_config = cmd_args.output_config;
         let dry_run = cmd_args.dry_run;
 
-        let config_file_args = try_config(cmd_args.clone().config)?;
-        let args = Config::from((cmd_args,config_file_args));
+        let args = match try_config(cmd_args.clone().config){
+            Ok(config_file) => {
+                Config::from((cmd_args,config_file))
+            },
+            Err(_) => Config::from(cmd_args),
+        };
     
             
 
@@ -226,21 +243,13 @@ fn main() -> anyhow::Result<()> {
 
         let state = AppState::new(
             mainnet_db,
+            NetID::Mainnet,
             secrets,
             args.mainnet_connect,
-            args.testnet_connect,
         );
 
         let mut app = tide::with_state(Arc::new(state));
         // set CORS
-        app.with(
-            CorsMiddleware::new()
-                .allow_methods("GET, POST, PUT, OPTIONS".parse::<HeaderValue>().unwrap())
-                .allow_headers(
-                    HeaderValue::from_bytes("x-melwalletd-auth-token".as_bytes().to_vec()).unwrap(),
-                )
-                .allow_origin("*"),
-        );
         // interpret errors
         app.with(tide::utils::After(|mut res: tide::Response| async move {
             if let Some(err) = res.error() {
@@ -466,7 +475,7 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn dump_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let (wallet, _) = req
+    let wallet = req
         .state()
         .get_wallet(&wallet_name)
         .await
@@ -478,7 +487,7 @@ async fn dump_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn dump_transactions(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let (wallet, _) = req
+    let wallet = req
         .state()
         .get_wallet(&wallet_name)
         .await
@@ -553,7 +562,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
             .context("wallet is locked")
             .map_err(to_forbidden)?
     };
-    let (wallet, network) = req
+    let wallet = req
         .state()
         .get_wallet(&wallet_name)
         .await
@@ -561,7 +570,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .map_err(to_badreq)?;
 
     // calculate fees
-    let client = req.state().client(network).clone();
+    let client = req.state().client(req.state().network).clone();
     let snapshot = client.snapshot().await.map_err(to_badgateway)?;
     let fee_multiplier = snapshot.current_header().fee_multiplier;
     let kind = request.kind;
@@ -598,7 +607,9 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let tx: Transaction = req.body_json().await?;
-    let (wallet, netid) = req
+    let netid = req.state().network;
+
+    let wallet = req
         .state()
         .get_wallet(&wallet_name)
         .await
@@ -625,7 +636,8 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn get_tx_balance(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let (wallet, network) = req
+    let network = req.state().network;
+    let wallet = req
         .state()
         .get_wallet(&wallet_name)
         .await
@@ -670,7 +682,8 @@ async fn get_tx_balance(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let (wallet, _) = req
+
+    let wallet = req
         .state()
         .get_wallet(&wallet_name)
         .await
@@ -728,7 +741,8 @@ async fn get_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let (wallet, network) = req
+    let network = req.state().network;
+    let wallet = req
         .state()
         .get_wallet(&wallet_name)
         .await

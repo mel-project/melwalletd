@@ -14,7 +14,6 @@ use crate::{
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use smol::future::FutureExt;
 use smol_timeout::TimeoutExt;
 use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
@@ -24,7 +23,7 @@ use tmelcrypt::Ed25519SK;
 /// Encapsulates all the state and logic needed for the wallet daemon.
 pub struct AppState {
     database: Database,
-    network: NetID,
+    pub network: NetID,
     clients: HashMap<NetID, ValClient>,
     unlocked_signers: DashMap<String, Arc<dyn Signer>>,
     secrets: SecretStore,
@@ -35,21 +34,21 @@ impl AppState {
     /// Creates a new appstate, given a mainnet and testnet server.
     pub fn new(
         database: Database,
+        network: NetID,
         secrets: SecretStore,
-        mainnet_addr: SocketAddr,
+        addr: SocketAddr,
     ) -> Self {
-        let mainnet_client = ValClient::new(NetID::Mainnet, mainnet_addr);
-        mainnet_client.trust(themelio_bootstrap::checkpoint_height(NetID::Mainnet).unwrap());
+        let client = ValClient::new(network, addr);
+        client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
         let clients: HashMap<NetID, ValClient> = vec![
-            (NetID::Mainnet, mainnet_client.clone()),
+            (NetID::Mainnet, client.clone()),
         ]
         .into_iter()
         .collect();
 
         let _confirm_task = smolscale::spawn(
-            confirm_task(database.clone(), mainnet_client)
+            confirm_task(database.clone(), client)
         );
-        let network =  NetID::Mainnet;
 
         Self {
             database,
@@ -122,7 +121,9 @@ impl AppState {
             }
         }
     }
-
+    pub async fn get_wallet(&self, name: &str) -> Option<Wallet>{
+        self.database.get_wallet(name).await
+    }
     /// Locks a particular wallet.
     pub fn lock(&self, name: &str) {
         self.unlocked_signers.remove(name);

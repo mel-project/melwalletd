@@ -17,27 +17,51 @@ use serde::{Deserialize, Serialize};
 use state::AppState;
 use tap::Tap;
 
-use std::fmt::Debug;
 use clap::Parser;
+use std::fmt::Debug;
 use themelio_nodeprot::ValClient;
 use themelio_structs::PoolKey;
 use themelio_structs::{
     BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, Transaction, TxKind,
 };
-use tide::security::{CorsMiddleware};
+use tide::security::CorsMiddleware;
 use tide::{Body, Request, StatusCode};
 use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 use walletdata::{AnnCoinID, TransactionStatus};
 
 use crate::{database::Database, secrets::SecretStore, signer::Signer};
 
+pub struct Prefer<T: Clone>(Option<T>, Option<T>);
+
+impl <T> Prefer<T> where T: Clone{
+
+    pub fn unwrap(&self) -> T{
+        self.pick().unwrap()
+    }
+    pub fn expect(&self, msg: &str) -> T {
+        self.expect_pick(msg).unwrap()
+    }
+    pub fn pick(&self) -> Option<T>{
+        self.expect_pick("")
+    }
+    pub fn expect_pick(&self, msg: &str) -> Option<T>{
+        if self.0.is_some(){self.0.clone()}
+        else if self.1.is_some(){self.1.clone()}
+        else {
+            self.0.clone() // force failure
+        }
+    }
+}
+
 
 #[derive(Parser, Clone, Deserialize, Debug)]
 struct Args {
     #[clap(long)]
+    /// Required: directory of the wallet database
     wallet_dir: Option<PathBuf>,
 
     #[clap(long)]
+    /// melwalletd server address [default: 127.0.0.1:11773]
     listen: Option<SocketAddr>,
 
     #[clap(long)]
@@ -46,22 +70,21 @@ struct Args {
     #[clap(long)]
     testnet_connect: Option<SocketAddr>,
 
-    #[clap(long)]
+    #[clap(long, short)]
+    /// CORS origins allowed to access daemon
     allowed_origins: Option<Vec<String>>,
 
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing, skip_serializing)]
     #[clap(long)]
     config: Option<String>,
 
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing, skip_serializing)]
     #[clap(long)]
     output_config: bool,
 
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing, skip_serializing)]
     #[clap(long)]
     dry_run: bool,
-
-
 }
 
 #[derive(Deserialize, Debug, Serialize)]
@@ -72,33 +95,79 @@ struct Config {
     testnet_connect: SocketAddr,
     allowed_origins: Vec<String>,
 }
-impl From<Args> for Config{
+impl Config {
+    fn new(
+        wallet_dir: PathBuf,
+        listen: Option<SocketAddr>,
+        mainnet_connect: Option<SocketAddr>,
+        testnet_connect: Option<SocketAddr>,
+        allowed_origins: Option<Vec<String>>,
+    ) -> Config {
+        Config {
+            wallet_dir,
+            listen: listen
+                .unwrap_or(SocketAddr::from_str("127.0.0.1:11773").unwrap()),
+            mainnet_connect: mainnet_connect
+                .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]),
+            testnet_connect: testnet_connect
+                .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Testnet)[0]),
+            allowed_origins: allowed_origins.unwrap_or(vec!["*".into()]),
+        }
+    }
+    fn preferenced_new(
+        wallet_dir: Prefer<PathBuf>,
+        listen: Prefer<SocketAddr>,
+        mainnet_connect: Prefer<SocketAddr>,
+        testnet_connect: Prefer<SocketAddr>,
+        allowed_origins: Prefer<Vec<String>>,
+    ) -> Config {
+        Config::new(
+            wallet_dir.expect("Must provide `wallet_dir`"),
+            listen.pick(),
+            mainnet_connect.pick(),
+            testnet_connect.pick(),
+           allowed_origins.pick(),
+        )
+    }
+}
+impl From<Args> for Config {
     fn from(args: Args) -> Self {
-        let config = Config {
-            wallet_dir: args.wallet_dir.expect("Must provide wallet_dir arg"),
-            listen: args.listen.unwrap_or(SocketAddr::from_str("127.0.0.1:11773").unwrap()),
-            mainnet_connect:  args
-            .mainnet_connect
-            .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]),
-            testnet_connect: args.testnet_connect
-            .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Testnet)[0]),
-            allowed_origins: args.allowed_origins.unwrap_or(vec!["*".into()]),
-        };
+        let config = Config::new(
+            args.wallet_dir.expect("Must provide wallet_dir arg"),
+            args.listen,
+            args.mainnet_connect,
+            args.testnet_connect,
+            args.allowed_origins,
+        );
+        config
+    }
+}
+
+impl From<(Args, Args)> for Config{
+    fn from(args: (Args, Args)) -> Self {
+        let (preference, baseline) = args;
+        let config = Config::preferenced_new(
+            Prefer(preference.wallet_dir, baseline.wallet_dir),
+             Prefer(preference.listen, baseline.listen),
+             Prefer(preference.mainnet_connect, baseline.mainnet_connect),
+             Prefer(preference.mainnet_connect, baseline.mainnet_connect),
+             Prefer(preference.allowed_origins, baseline.allowed_origins)
+
+        );
 
         config
     }
 }
 
-
-
-
 fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
-    let cors = origins.iter().fold(CorsMiddleware::new(), |cors, val|{
-        let s: &str = &val;
-        cors.allow_origin(s)
-    })
-    .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
-    .allow_credentials(false);
+    let cors = origins
+        .iter()
+        .fold(CorsMiddleware::new(), |cors, val| {
+            let s: &str = &val;
+            cors.allow_origin(s)
+        })
+        .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
+        .allow_credentials(false);
 
     cors
 }
@@ -115,39 +184,29 @@ fn main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
         let cmd_args = Args::from_args();
+
         let output_config = cmd_args.output_config;
         let dry_run = cmd_args.dry_run;
-        let args = {
-            match try_config(cmd_args.clone().config){
-                Ok(config) => {
-                    let mut file_config = config.clone();
 
-                    file_config.wallet_dir = unwrap_or_replace(cmd_args.wallet_dir, file_config.wallet_dir );
-                    file_config.listen = unwrap_or_replace(cmd_args.listen, file_config.listen);
-                    file_config.mainnet_connect = unwrap_or_replace(cmd_args.mainnet_connect, file_config.mainnet_connect);
-                    file_config.testnet_connect = unwrap_or_replace(cmd_args.testnet_connect, file_config.testnet_connect);
-                    file_config.allowed_origins = unwrap_or_replace(cmd_args.allowed_origins, file_config.allowed_origins);
-
-                    anyhow::Ok(Config::from(file_config))
-                },
-                Err(_) => Ok(Config::from(cmd_args)),
-            }
+        let config_file_args = try_config(cmd_args.clone().config)?;
+        let args = Config::from((cmd_args,config_file_args));
+    
             
-        }?;
 
-        if output_config{
-                println!("{}", serde_yaml::to_string(&args).expect("Critical Failure: Unable to serialize `Config`"));
+        if output_config {
+            println!(
+                "{}",
+                serde_yaml::to_string(&args)
+                    .expect("Critical Failure: Unable to serialize `Config`")
+            );
         }
 
-        if dry_run{
-            return Ok(())
+        if dry_run {
+            return Ok(());
         }
-        
-        
+
         println!("{:?}", args.allowed_origins);
-        
-        
-        
+
         std::fs::create_dir_all(&args.wallet_dir).context("cannot create wallet_dir")?;
         // SAFETY: this is perfectly safe because chmod cannot lead to memory unsafety.
         unsafe {
@@ -201,7 +260,7 @@ fn main() -> anyhow::Result<()> {
             testnet_db,
             secrets,
             args.mainnet_connect,
-            args.testnet_connect
+            args.testnet_connect,
         );
 
         let mut app = tide::with_state(Arc::new(state));
@@ -246,8 +305,7 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/transactions/:txhash/balance")
             .get(get_tx_balance);
         // app.at("/wallets/:name/transactions/:txhash")
-        //     .delete(force_revert_tx);   
-
+        //     .delete(force_revert_tx);
 
         let cors = generate_cors(args.allowed_origins);
 

@@ -1,11 +1,12 @@
+mod cli;
 mod database;
 mod multi;
 mod secrets;
 mod signer;
 mod state;
-mod cli;
 
 mod walletdata;
+use std::convert::TryFrom;
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -34,24 +35,21 @@ use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 use walletdata::{AnnCoinID, TransactionStatus};
 
 use crate::{database::Database, secrets::SecretStore, signer::Signer};
+
 use crate::cli::*;
-
-
-
 
 fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
     let cors = origins
-    .iter()
-    .fold(CorsMiddleware::new(), |cors, val| {
-        let s: &str = &val;
-        cors.allow_origin(s)
-    })
-    .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
-    .allow_credentials(false);
-    
+        .iter()
+        .fold(CorsMiddleware::new(), |cors, val| {
+            let s: &str = &val;
+            cors.allow_origin(s)
+        })
+        .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
+        .allow_credentials(false);
+
     cors
 }
-
 
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
@@ -62,36 +60,32 @@ fn main() -> anyhow::Result<()> {
         let is_config = {
             let mut is_config = false;
             for argument in env::args() {
-                if argument == "--config"{
+                if argument == "--config" {
                     is_config = true;
                     break;
                 }
             }
             is_config
-
         };
 
+        let cmd_args = match Args::try_parse(){
+            Ok(i) => i,
+            Err(e) => return Err(anyhow::anyhow!("{}", e.context().collect())),
+        };
 
-
-        
-
-        let cmd_args = match is_config {
-            true => Args::from_args(),
-            false => Args::from(ConfigArgs::from_args()),
+        let args = match is_config {
+            false => Args::try_parse() ,
+            true => try_config(cmd_args.clone().config),
         };
 
         let output_config = cmd_args.output_config;
         let dry_run = cmd_args.dry_run;
 
-
-
-        let config = match try_config(cmd_args.clone().config){
-            Ok(config_file) => {
-                Config::from((cmd_args,config_file))
-            },
+        let config = match try_config(cmd_args.clone().config) {
+            Ok(config_file) => Config::from((cmd_args, config_file)),
             Err(_) => Config::from(cmd_args),
         };
-    
+
         let network = config.network;
         let addr = config.network_addr;
 
@@ -110,7 +104,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         std::fs::create_dir_all(&config.wallet_dir).context("cannot create wallet_dir")?;
-        
+
         // SAFETY: this is perfectly safe because chmod cannot lead to memory unsafety.
         unsafe {
             libc::chmod(
@@ -124,12 +118,7 @@ fn main() -> anyhow::Result<()> {
             multiwallet.list().collect::<Vec<_>>()
         );
 
-        let db = Database::open(
-            config.wallet_dir
-                .clone()
-                .tap_mut(|p| p.push(db_name)),
-        )
-        .await?;
+        let db = Database::open(config.wallet_dir.clone().tap_mut(|p| p.push(db_name))).await?;
 
         let client = ValClient::new(network, addr);
         client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
@@ -140,7 +129,6 @@ fn main() -> anyhow::Result<()> {
                 log::info!("restoring mainnet {}", wallet_name);
                 db.restore_wallet_dump(&wallet_name, wallet).await;
             }
-            
         }
 
         let mut secret_path = config.wallet_dir.clone();
@@ -152,8 +140,7 @@ fn main() -> anyhow::Result<()> {
             network,
             secrets,
             addr,
-            themelio_bootstrap::checkpoint_height(network).unwrap()
-
+            themelio_bootstrap::checkpoint_height(network).unwrap(),
         );
 
         let mut app = tide::with_state(Arc::new(state));
@@ -213,16 +200,18 @@ fn try_config(filename: Option<String>) -> anyhow::Result<Args> {
 
 async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name")?;
-    let wallet_list = req
-        .state()
-        .list_wallets().await;
-    let wallets = summarize_wallet_raw(wallet_name, wallet_list).await.context("idk");
+    let wallet_list = req.state().list_wallets().await;
+    let wallets = summarize_wallet_raw(wallet_name, wallet_list)
+        .await
+        .context("idk");
     Body::from_json(&wallets?)
 }
 
-async fn summarize_wallet_raw(wallet_name: &str,  wallet_list: BTreeMap<String, WalletSummary>) -> Option<WalletSummary>{
-        wallet_list.get(wallet_name).cloned()
-
+async fn summarize_wallet_raw(
+    wallet_name: &str,
+    wallet_list: BTreeMap<String, WalletSummary>,
+) -> Option<WalletSummary> {
+    wallet_list.get(wallet_name).cloned()
 }
 
 async fn get_summary(req: Request<Arc<AppState>>) -> tide::Result<Body> {

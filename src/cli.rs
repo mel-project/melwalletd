@@ -6,48 +6,48 @@ use serde::*;
 use themelio_structs::NetID;
 
 #[derive(Parser, Clone, Deserialize, Debug)]
-struct Args {
+pub struct Args {
     #[clap(long)]
     /// Required: directory of the wallet database
-    wallet_dir: PathBuf,
+    pub wallet_dir: PathBuf,
 
     #[clap(long, default_value="127.0.0.1:11773")]
     /// melwalletd server address [default: 127.0.0.1:11773]
-    listen: SocketAddr,
+    pub listen: SocketAddr,
 
 
     #[clap(long, short, default_value = "*")]
     /// CORS origins allowed to access daemon
-    allowed_origins: Vec<String>, // TODO: validate as urls
+    pub allowed_origins: Vec<String>, // TODO: validate as urls
 
     #[clap(long)]
-    network_addr: Option<SocketAddr>,
+    pub network_addr: Option<SocketAddr>,
 
     #[clap(long, default_value = "mainnet")]
-    netid: NetID, // TODO: make this NETID
+    pub netid: NetID, // TODO: make this NETID
 
     #[serde(skip_serializing)]
     #[clap(long)]
-    config: Option<String>,
+    pub config: Option<String>,
 
     #[serde(skip_serializing)]
     #[clap(long)]
-    output_config: bool,
+    pub output_config: bool,
 
     #[serde(skip_serializing)]
     #[clap(long)]
-    dry_run: bool,
+    pub dry_run: bool,
 }
 
 
 
 #[derive(Deserialize, Debug, Serialize)]
-struct Config {
-    wallet_dir: PathBuf,
-    listen: SocketAddr,
-    network_addr: SocketAddr,
-    allowed_origins: Vec<String>,
-    network: NetID,
+pub struct Config {
+    pub wallet_dir: PathBuf,
+    pub listen: SocketAddr,
+    pub network_addr: SocketAddr,
+    pub allowed_origins: Vec<String>,
+    pub network: NetID,
 }
 impl Config {
     // Create's a new config and attempts to discover a reasonable bootstrap node if possible

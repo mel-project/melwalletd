@@ -7,14 +7,16 @@ mod walletdata;
 use std::fs::File;
 use std::io::Read;
 use std::str::FromStr;
+use std::time::Duration;
 use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use base32::Alphabet;
+use display_json::DisplayAsJson;
 use http_types::headers::HeaderValue;
 use multi::LegacyMultiWallet;
 use serde::{Deserialize, Serialize};
-use state::AppState;
+use state::{AppState, WalletSummary};
 use tap::Tap;
 
 use clap::Parser;
@@ -45,14 +47,14 @@ struct Args {
     listen: Option<SocketAddr>,
 
     #[clap(long)]
-    mainnet_connect: Option<SocketAddr>,
+    network_addr: Option<SocketAddr>,
 
     #[clap(long)]
-    testnet_connect: Option<SocketAddr>,
+    netid: Option<NetID>, // TODO: make this NETID
 
     #[clap(long, short)]
     /// CORS origins allowed to access daemon
-    allowed_origins: Option<Vec<String>>,
+    allowed_origins: Option<Vec<String>>, // TODO: validate as urls
 
     #[serde(skip_deserializing, skip_serializing)]
     #[clap(long)]
@@ -71,8 +73,7 @@ struct Args {
 struct Config {
     wallet_dir: PathBuf,
     listen: SocketAddr,
-    mainnet_connect: SocketAddr,
-    testnet_connect: SocketAddr,
+    network_addr: SocketAddr,
     allowed_origins: Vec<String>,
     network: NetID,
 }
@@ -80,22 +81,22 @@ impl Config {
     fn new(
         wallet_dir: Option<PathBuf>,
         listen: Option<SocketAddr>,
-        mainnet_connect: Option<SocketAddr>,
-        testnet_connect: Option<SocketAddr>,
         allowed_origins: Option<Vec<String>>,
+        network_addr: Option<SocketAddr>,
+        network: Option<NetID>,
     ) -> Config {
+        let network = network.unwrap_or(NetID::Mainnet);
+        let network_addr = network_addr.or(first_bootstrap_route(network))
+        .expect(&format!("No bootstrap nodes available for network: {network:?}"));
         Config {
             wallet_dir: wallet_dir.expect("Must provide arg: `wallet-dir`"),
             listen: listen
                 .unwrap_or(SocketAddr::from_str("127.0.0.1:11773").unwrap()),
-            mainnet_connect: mainnet_connect
-                .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Mainnet)[0]),
-            testnet_connect: testnet_connect
-                .unwrap_or_else(|| themelio_bootstrap::bootstrap_routes(NetID::Testnet)[0]),
+            network_addr,
             allowed_origins: allowed_origins.unwrap_or(vec!["*".into()]),
-            network: NetID::Mainnet,
+            network,
         }
-    }
+    } 
 }
 
 impl From<Args> for Config {
@@ -103,9 +104,9 @@ impl From<Args> for Config {
         let config = Config::new(
             args.wallet_dir,
             args.listen,
-            args.mainnet_connect,
-            args.testnet_connect,
             args.allowed_origins,
+            args.network_addr,
+            args.netid,
         );
         config
     }
@@ -115,37 +116,76 @@ impl From<(Args, Args)> for Config{
     fn from(args: (Args, Args)) -> Self {
         let (preference, baseline) = args;
         let config = Config::new(
-            prefer(preference.wallet_dir, baseline.wallet_dir),
-             prefer(preference.listen, baseline.listen),
-             prefer(preference.mainnet_connect, baseline.mainnet_connect),
-             prefer(preference.mainnet_connect, baseline.mainnet_connect),
-             prefer(preference.allowed_origins, baseline.allowed_origins)
-
+            preference.wallet_dir.or(baseline.wallet_dir),
+            preference.listen.or(baseline.listen),
+            preference.allowed_origins.or(baseline.allowed_origins),
+            preference.network_addr.or(baseline.network_addr),
+            preference.netid.or(baseline.netid)
         );
-
+        
         config
     }
 }
 
-fn prefer<T>(option1: Option<T>, option2: Option<T>) -> Option<T> {
-    if option1.is_some(){option1}
-    else if option2.is_some(){option2}
-    else {
-        option1 // known failure
+
+#[repr(u8)]
+#[derive(Serialize, Deserialize, Debug)]
+pub enum LocalNetID {
+    Testnet,
+    Custom02,
+    Custom03,
+    Custom04,
+    Custom05,
+    Custom06,
+    Custom07,
+    Custom08,
+    Mainnet,
+}
+
+impl From<LocalNetID> for NetID {
+    fn from(local: LocalNetID) -> Self {
+        match local{
+            LocalNetID::Testnet => NetID::Testnet,
+            LocalNetID::Custom02 => NetID::Custom02,
+            LocalNetID::Custom03 => NetID::Custom03,
+            LocalNetID::Custom04 => NetID::Custom04,
+            LocalNetID::Custom05 => NetID::Custom05,
+            LocalNetID::Custom06 => NetID::Custom06,
+            LocalNetID::Custom07 => NetID::Custom07,
+            LocalNetID::Custom08 => NetID::Custom08,
+            LocalNetID::Mainnet => NetID::Mainnet,
+        }
     }
+}
+fn netid_from_str(s: &str) -> anyhow::Result<NetID> {
+    println!("parsing");
+    println!("{}", serde_json::to_string(&LocalNetID::Mainnet)?);
+    let mut de = serde_json::Deserializer::from_str("Mainnet");
+    let local =  LocalNetID::deserialize(&mut de);
+
+    println!("local: {local:?}");
+    Ok(local?.into())
 }
 
 fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
     let cors = origins
-        .iter()
-        .fold(CorsMiddleware::new(), |cors, val| {
-            let s: &str = &val;
-            cors.allow_origin(s)
-        })
-        .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
-        .allow_credentials(false);
-
+    .iter()
+    .fold(CorsMiddleware::new(), |cors, val| {
+        let s: &str = &val;
+        cors.allow_origin(s)
+    })
+    .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
+    .allow_credentials(false);
+    
     cors
+}
+fn first_bootstrap_route(network: NetID) -> Option<SocketAddr>{
+    let routes = themelio_bootstrap::bootstrap_routes(network);
+    if routes.is_empty(){ None }
+    else {
+        Some(routes[0])
+    }
+
 }
 
 fn main() -> anyhow::Result<()> {
@@ -166,8 +206,10 @@ fn main() -> anyhow::Result<()> {
         };
     
         let network = config.network;
-        let db_name = "mainnet-wallets.db";
+        let addr = config.network_addr;
 
+        let db_name = format!("{network:?}-wallets.db").to_ascii_lowercase();
+        println!("{db_name}");
         if output_config {
             println!(
                 "{}",
@@ -202,8 +244,7 @@ fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-        let addr = config.mainnet_connect;
-        let client = ValClient::new(NetID::Mainnet, addr);
+        let client = ValClient::new(network, addr);
         client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
         for wallet_name in multiwallet.list() {
             let wallet = multiwallet.get_wallet(&wallet_name)?;
@@ -221,9 +262,11 @@ fn main() -> anyhow::Result<()> {
 
         let state = AppState::new(
             db,
-            NetID::Mainnet,
+            network,
             secrets,
-            config.mainnet_connect,
+            addr,
+            themelio_bootstrap::checkpoint_height(network).unwrap()
+
         );
 
         let mut app = tide::with_state(Arc::new(state));
@@ -283,45 +326,26 @@ fn try_config(filename: Option<String>) -> anyhow::Result<Args> {
 
 async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name")?;
-    let summary = req
+    let wallet_list = req
         .state()
-        .wallet_summary(wallet_name)
-        .await
-        .context("not found")
-        .map_err(to_notfound)?;
-    Body::from_json(&summary)
+        .list_wallets().await;
+    let wallets = summarize_wallet_raw(wallet_name, wallet_list).await.context("idk");
+    Body::from_json(&wallets?)
 }
 
-async fn summarize_wallet_raw(wallet_name: &str) -> tide::Result<Body> {
-    let summary = req
-        .state()
-        .wallet_summary(wallet_name)
-        .await
-        .context("not found")
-        .map_err(to_notfound)?;
-    Body::from_json(&summary)
+async fn summarize_wallet_raw(wallet_name: &str,  wallet_list: BTreeMap<String, WalletSummary>) -> Option<WalletSummary>{
+        wallet_list.get(wallet_name).cloned()
+
 }
 
 async fn get_summary(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    let query: BTreeMap<String, String> = req.query()?;
-    let network = if query.get("testnet").is_some() {
-        NetID::Testnet
-    } else {
-        NetID::Mainnet
-    };
-    let client = req.state().client(network).clone();
+    let client = req.state().client.clone();
     let snap = client.snapshot().await?;
     Body::from_json(&snap.current_header())
 }
 
 async fn get_pool(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    let query: BTreeMap<String, String> = req.query()?;
-    let network = if query.get("testnet").is_some() {
-        NetID::Testnet
-    } else {
-        NetID::Mainnet
-    };
-    let client = req.state().client(network).clone();
+    let client = req.state().client.clone();
     let pool_key: PoolKey = req
         .param("pair")?
         .replace(':', "/")
@@ -357,16 +381,11 @@ async fn get_pool_info(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     }
 
     let query: Req = req.body_json().await?;
-    let network = if query.testnet {
-        NetID::Testnet
-    } else {
-        NetID::Mainnet
-    };
 
     let from = Denom::from_bytes(&hex::decode(&query.from)?).context("oh no")?;
     let to = Denom::from_bytes(&hex::decode(&query.to)?).context("oh no")?;
 
-    let client = req.state().client(network).clone();
+    let client = req.state().client.clone();
     if from == to {
         return Err(to_badreq(anyhow::anyhow!(
             "cannot swap between identical denoms"
@@ -558,7 +577,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .map_err(to_badreq)?;
 
     // calculate fees
-    let client = req.state().client(req.state().network).clone();
+    let client = req.state().client.clone();
     let snapshot = client.snapshot().await.map_err(to_badgateway)?;
     let fee_multiplier = snapshot.current_header().fee_multiplier;
     let kind = request.kind;
@@ -595,7 +614,6 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let tx: Transaction = req.body_json().await?;
-    let netid = req.state().network;
 
     let wallet = req
         .state()
@@ -603,7 +621,7 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .await
         .context("fail")
         .map_err(to_badreq)?;
-    let snapshot = req.state().client(netid).snapshot().await?;
+    let snapshot = req.state().client.snapshot().await?;
     // we send it off ourselves
     snapshot.get_raw().send_tx(tx.clone()).await?;
     // we mark the TX as sent in this thread.
@@ -624,7 +642,6 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn get_tx_balance(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let network = req.state().network;
     let wallet = req
         .state()
         .get_wallet(&wallet_name)
@@ -634,7 +651,7 @@ async fn get_tx_balance(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
     let raw = wallet
         .get_transaction(txhash.into(), async {
-            Ok(req.state().client(network).snapshot().await?)
+            Ok(req.state().client.snapshot().await?)
         })
         .await
         .map_err(to_badgateway)?

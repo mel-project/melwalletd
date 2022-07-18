@@ -15,21 +15,23 @@ use crate::{
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
-use themelio_nodeprot::ValClient;
+use themelio_nodeprot::{ValClient, TrustedHeight};
 use themelio_stf::melvm::Covenant;
-use themelio_structs::{Address, CoinValue, Denom, NetID};
+use themelio_structs::{Address, CoinValue, Denom, NetID, BlockHeight};
 use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
 pub struct AppState {
-    database: Database,
+    pub database: Database,
     pub network: NetID,
-    clients: HashMap<NetID, ValClient>,
-    unlocked_signers: DashMap<String, Arc<dyn Signer>>,
-    secrets: SecretStore,
-    _confirm_task: smol::Task<()>,
+    pub client: ValClient,
+    pub unlocked_signers: DashMap<String, Arc<dyn Signer>>,
+    pub secrets: SecretStore,
+    pub _confirm_task: smol::Task<()>,
+    pub trusted_height: TrustedHeight,
 }
 
+///themelio_bootstrap::checkpoint_height(network).unwrap()
 impl AppState {
     /// Creates a new appstate, given a mainnet and testnet server.
     pub fn new(
@@ -37,26 +39,23 @@ impl AppState {
         network: NetID,
         secrets: SecretStore,
         addr: SocketAddr,
+        trusted_height: TrustedHeight,
     ) -> Self {
         let client = ValClient::new(network, addr);
-        client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
-        let clients: HashMap<NetID, ValClient> = vec![
-            (NetID::Mainnet, client.clone()),
-        ]
-        .into_iter()
-        .collect();
+        client.trust(trusted_height.clone());
 
         let _confirm_task = smolscale::spawn(
-            confirm_task(database.clone(), client)
+            confirm_task(database.clone(), client.clone())
         );
 
         Self {
             database,
             network,
-            clients,
+            client,
             unlocked_signers: Default::default(),
             secrets,
             _confirm_task,
+            trusted_height,
         }
     }
 
@@ -149,12 +148,6 @@ impl AppState {
         log::info!("created wallet with name {}", name);
         Ok(())
     }
-
-    /// Gets a reference to the client.
-    pub fn client(&self, network: NetID) -> &ValClient {
-        &self.clients[&network]
-    }
-
 
 }
 

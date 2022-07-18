@@ -1,4 +1,4 @@
-use std::{path::PathBuf, net::SocketAddr, str::FromStr};
+use std::{path::PathBuf, net::SocketAddr, str::FromStr, convert::TryFrom};
 
 use anyhow::Context;
 use clap::Parser;
@@ -11,20 +11,20 @@ struct Args {
     /// Required: directory of the wallet database
     wallet_dir: PathBuf,
 
-    #[clap(long)]
+    #[clap(long, default_value="127.0.0.1:11773")]
     /// melwalletd server address [default: 127.0.0.1:11773]
-    listen: Option<SocketAddr>,
+    listen: SocketAddr,
 
 
     #[clap(long, short, default_value = "*")]
     /// CORS origins allowed to access daemon
-    allowed_origins: Option<Vec<String>>, // TODO: validate as urls
+    allowed_origins: Vec<String>, // TODO: validate as urls
 
     #[clap(long)]
     network_addr: Option<SocketAddr>,
 
-    #[clap(long)]
-    netid: Option<NetID>, // TODO: make this NETID
+    #[clap(long, default_value = "mainnet")]
+    netid: NetID, // TODO: make this NETID
 
     #[serde(skip_serializing)]
     #[clap(long)]
@@ -50,54 +50,43 @@ struct Config {
     network: NetID,
 }
 impl Config {
+    // Create's a new config and attempts to discover a reasonable bootstrap node if possible
     fn new(
         wallet_dir: PathBuf,
         listen: SocketAddr,
-        allowed_origins: Option<Vec<String>>,
-        network_addr: Option<SocketAddr>,
-        network: Option<NetID>,
+        allowed_origins: Vec<String>,
+        network_addr: SocketAddr,
+        network: NetID,
     ) -> Config {
-        let network = network.unwrap_or(NetID::Mainnet);
-        let network_addr = network_addr
-            .or(first_bootstrap_route(network))
-            .expect(&format!(
-                "No bootstrap nodes available for network: {network:?}"
-            ));
+        
         Config {
             wallet_dir,
             listen,
             network_addr,
-            allowed_origins: allowed_origins.unwrap_or(vec!["*".into()]),
+            allowed_origins,
             network,
         }
     }
 }
 
-impl From<Args> for Config {
-    fn from(args: Args) -> Self {
-        let config = Config::new(
-            args.wallet_dir.expect("Must provide arg: `wallet-dir`"),
-            args.listen.unwrap_or(SocketAddr::from_str("127.0.0.1:11773").unwrap()),
-            args.allowed_origins,
-            args.network_addr,
-            args.netid,
-        );
-        config
-    }
-}
+impl TryFrom<Args> for Config {
+    type Error = anyhow::Error;
 
-impl From<(Args, Args)> for Config {
-    fn from(args: (Args, Args)) -> Self {
-        let (preference, baseline) = args;
-        let config = Config::new(
-            Some(preference.wallet_dir).or(Some(baseline.wallet_dir)),
-            preference.listen.or(baseline.listen),
-            preference.allowed_origins.or(baseline.allowed_origins),
-            preference.network_addr.or(baseline.network_addr),
-            preference.netid.or(baseline.netid),
-        );
+    fn try_from(args: Args) -> Result<Self, Self::Error> {
+        let network_addr = args.network_addr
+        .or(first_bootstrap_route(args.netid))
+        .context(&format!(
+            "No bootstrap nodes available for network: {:?}", args.netid
+        ))?;
 
-        config
+    let config = Config::new(
+        args.wallet_dir,
+        args.listen,
+        args.allowed_origins,
+        network_addr,
+        args.netid,
+    );
+        Ok(config)
     }
 }
 

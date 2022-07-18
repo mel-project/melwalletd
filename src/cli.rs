@@ -51,8 +51,8 @@ struct Config {
 }
 impl Config {
     fn new(
-        wallet_dir: Option<PathBuf>,
-        listen: Option<SocketAddr>,
+        wallet_dir: PathBuf,
+        listen: SocketAddr,
         allowed_origins: Option<Vec<String>>,
         network_addr: Option<SocketAddr>,
         network: Option<NetID>,
@@ -64,8 +64,8 @@ impl Config {
                 "No bootstrap nodes available for network: {network:?}"
             ));
         Config {
-            wallet_dir: wallet_dir.expect("Must provide arg: `wallet-dir`"),
-            listen: listen.unwrap_or(SocketAddr::from_str("127.0.0.1:11773").unwrap()),
+            wallet_dir,
+            listen,
             network_addr,
             allowed_origins: allowed_origins.unwrap_or(vec!["*".into()]),
             network,
@@ -76,8 +76,8 @@ impl Config {
 impl From<Args> for Config {
     fn from(args: Args) -> Self {
         let config = Config::new(
-            Some(args.wallet_dir),
-            args.listen,
+            args.wallet_dir.expect("Must provide arg: `wallet-dir`"),
+            args.listen.unwrap_or(SocketAddr::from_str("127.0.0.1:11773").unwrap()),
             args.allowed_origins,
             args.network_addr,
             args.netid,

@@ -11,7 +11,7 @@ use themelio_structs::NetID;
         .args(&["wallet-dir", "config"]),
 ))]
 pub struct Args {
-    #[clap(long, group="standard")]
+    #[clap(long)]
     /// Required: directory of the wallet database
     pub wallet_dir: Option<PathBuf>,
 
@@ -31,7 +31,7 @@ pub struct Args {
     pub network: NetID,
 
     #[serde(skip_serializing)]
-    #[clap(long, group="standard")]
+    #[clap(long)]
     pub config: Option<String>,
 
     #[serde(skip_serializing)]

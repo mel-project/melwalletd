@@ -8,7 +8,7 @@ mod state;
 mod walletdata;
 use std::convert::TryFrom;
 use std::env;
-use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, ffi::CString, sync::Arc};
 
 use anyhow::Context;
 use base32::Alphabet;
@@ -19,6 +19,7 @@ use state::{AppState, WalletSummary};
 use tap::Tap;
 
 use clap::Parser;
+use tracing::error;
 use std::fmt::Debug;
 use themelio_nodeprot::ValClient;
 use themelio_structs::PoolKey;
@@ -52,30 +53,19 @@ fn main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
 
-        let is_config = {
-            let mut is_config = false;
-            for argument in env::args() {
-                if argument == "--config" {
-                    is_config = true;
-                    break;
-                }
-            }
-            is_config
-        };
 
         let cmd_args = Args::from_args();
 
         let output_config = cmd_args.output_config;
         let dry_run = cmd_args.dry_run;
-        // let output_config = cmd_args.output_config;
-        // let dry_run = cmd_args.dry_run;
 
-        // let config = match try_config(cmd_args.clone().config) {
-        //     Ok(config_file) => Config::from((cmd_args, config_file)),
-        //     Err(_) => Config::from(cmd_args),
-        // };
-
-        let config = Config::try_from(cmd_args)?;
+        let config = match Config::try_from(cmd_args){
+            Ok(i) => anyhow::Ok(i),
+            Err(err) => {
+                let fmt = format!("Configuration Error: {}", err);
+                return Err(anyhow::anyhow!(fmt))
+            },
+        }?;
 
         let network = config.network;
         let addr = config.network_addr;

@@ -3,7 +3,10 @@ mod multi;
 mod secrets;
 mod signer;
 mod state;
+mod cli;
+
 mod walletdata;
+use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::str::FromStr;
@@ -12,7 +15,6 @@ use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, s
 
 use anyhow::Context;
 use base32::Alphabet;
-use display_json::DisplayAsJson;
 use http_types::headers::HeaderValue;
 use multi::LegacyMultiWallet;
 use serde::{Deserialize, Serialize};
@@ -32,140 +34,10 @@ use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 use walletdata::{AnnCoinID, TransactionStatus};
 
 use crate::{database::Database, secrets::SecretStore, signer::Signer};
+use crate::cli::*;
 
 
 
-
-#[derive(Parser, Clone, Deserialize, Debug)]
-struct Args {
-    #[clap(long)]
-    /// Required: directory of the wallet database
-    wallet_dir: Option<PathBuf>,
-
-    #[clap(long)]
-    /// melwalletd server address [default: 127.0.0.1:11773]
-    listen: Option<SocketAddr>,
-
-    #[clap(long)]
-    network_addr: Option<SocketAddr>,
-
-    #[clap(long)]
-    netid: Option<NetID>, // TODO: make this NETID
-
-    #[clap(long, short)]
-    /// CORS origins allowed to access daemon
-    allowed_origins: Option<Vec<String>>, // TODO: validate as urls
-
-    #[serde(skip_deserializing, skip_serializing)]
-    #[clap(long)]
-    config: Option<String>,
-
-    #[serde(skip_deserializing, skip_serializing)]
-    #[clap(long)]
-    output_config: bool,
-
-    #[serde(skip_deserializing, skip_serializing)]
-    #[clap(long)]
-    dry_run: bool,
-}
-
-#[derive(Deserialize, Debug, Serialize)]
-struct Config {
-    wallet_dir: PathBuf,
-    listen: SocketAddr,
-    network_addr: SocketAddr,
-    allowed_origins: Vec<String>,
-    network: NetID,
-}
-impl Config {
-    fn new(
-        wallet_dir: Option<PathBuf>,
-        listen: Option<SocketAddr>,
-        allowed_origins: Option<Vec<String>>,
-        network_addr: Option<SocketAddr>,
-        network: Option<NetID>,
-    ) -> Config {
-        let network = network.unwrap_or(NetID::Mainnet);
-        let network_addr = network_addr.or(first_bootstrap_route(network))
-        .expect(&format!("No bootstrap nodes available for network: {network:?}"));
-        Config {
-            wallet_dir: wallet_dir.expect("Must provide arg: `wallet-dir`"),
-            listen: listen
-                .unwrap_or(SocketAddr::from_str("127.0.0.1:11773").unwrap()),
-            network_addr,
-            allowed_origins: allowed_origins.unwrap_or(vec!["*".into()]),
-            network,
-        }
-    } 
-}
-
-impl From<Args> for Config {
-    fn from(args: Args) -> Self {
-        let config = Config::new(
-            args.wallet_dir,
-            args.listen,
-            args.allowed_origins,
-            args.network_addr,
-            args.netid,
-        );
-        config
-    }
-}
-
-impl From<(Args, Args)> for Config{
-    fn from(args: (Args, Args)) -> Self {
-        let (preference, baseline) = args;
-        let config = Config::new(
-            preference.wallet_dir.or(baseline.wallet_dir),
-            preference.listen.or(baseline.listen),
-            preference.allowed_origins.or(baseline.allowed_origins),
-            preference.network_addr.or(baseline.network_addr),
-            preference.netid.or(baseline.netid)
-        );
-        
-        config
-    }
-}
-
-
-#[repr(u8)]
-#[derive(Serialize, Deserialize, Debug)]
-pub enum LocalNetID {
-    Testnet,
-    Custom02,
-    Custom03,
-    Custom04,
-    Custom05,
-    Custom06,
-    Custom07,
-    Custom08,
-    Mainnet,
-}
-
-impl From<LocalNetID> for NetID {
-    fn from(local: LocalNetID) -> Self {
-        match local{
-            LocalNetID::Testnet => NetID::Testnet,
-            LocalNetID::Custom02 => NetID::Custom02,
-            LocalNetID::Custom03 => NetID::Custom03,
-            LocalNetID::Custom04 => NetID::Custom04,
-            LocalNetID::Custom05 => NetID::Custom05,
-            LocalNetID::Custom06 => NetID::Custom06,
-            LocalNetID::Custom07 => NetID::Custom07,
-            LocalNetID::Custom08 => NetID::Custom08,
-            LocalNetID::Mainnet => NetID::Mainnet,
-        }
-    }
-}
-fn netid_from_str(s: &str) -> anyhow::Result<NetID> {
-    println!("parsing");
-    println!("{}", serde_json::to_string(&LocalNetID::Mainnet)?);
-    let mut de = serde_json::Deserializer::from_str("Mainnet");
-    let local =  LocalNetID::deserialize(&mut de);
-
-    println!("local: {local:?}");
-    Ok(local?.into())
-}
 
 fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
     let cors = origins
@@ -179,24 +51,39 @@ fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
     
     cors
 }
-fn first_bootstrap_route(network: NetID) -> Option<SocketAddr>{
-    let routes = themelio_bootstrap::bootstrap_routes(network);
-    if routes.is_empty(){ None }
-    else {
-        Some(routes[0])
-    }
 
-}
 
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
         let log_conf = std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,warn".into());
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
-        let cmd_args = Args::from_args();
+
+        let is_config = {
+            let mut is_config = false;
+            for argument in env::args() {
+                if argument == "--config"{
+                    is_config = true;
+                    break;
+                }
+            }
+            is_config
+
+        };
+
+
+
+        
+
+        let cmd_args = match is_config {
+            true => Args::from_args(),
+            false => Args::from(ConfigArgs::from_args()),
+        };
 
         let output_config = cmd_args.output_config;
         let dry_run = cmd_args.dry_run;
+
+
 
         let config = match try_config(cmd_args.clone().config){
             Ok(config_file) => {

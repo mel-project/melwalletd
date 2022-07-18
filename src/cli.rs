@@ -1,19 +1,21 @@
-use std::{path::PathBuf, net::SocketAddr, str::FromStr, convert::TryFrom, fs::File, io::Read, env};
+use std::{path::PathBuf, net::SocketAddr, convert::TryFrom, fs::File, io::Read};
 
-use anyhow::Context;
-use clap::{Parser, ArgGroup, FromArgMatches, ArgMatches};
+use clap::{Parser, ArgGroup};
 use serde::*;
 use themelio_structs::NetID;
 
 #[derive(Parser, Clone, Deserialize, Debug)]
-
+#[clap(group(
+    ArgGroup::new("options")
+        .required(true)
+        .args(&["wallet-dir", "config"]),
+))]
 pub struct Args {
     #[clap(long, group="standard")]
     /// Required: directory of the wallet database
     pub wallet_dir: Option<PathBuf>,
 
     #[clap(long, default_value="127.0.0.1:11773")]
-    #[serde(deserialize_with="default_socket")]
     /// melwalletd server address
     pub listen: SocketAddr,
 
@@ -25,8 +27,8 @@ pub struct Args {
     #[clap(long)]
     pub network_addr: Option<SocketAddr>,
 
-    #[clap(long)]
-    pub network: Option<NetID>, // TODO: make this NETID
+    #[clap(long, default_value="mainnet")]
+    pub network: NetID,
 
     #[serde(skip_serializing)]
     #[clap(long, group="standard")]
@@ -34,10 +36,12 @@ pub struct Args {
 
     #[serde(skip_serializing)]
     #[clap(long)]
+    /// send the generated config to stdout
     pub output_config: bool,
 
     #[serde(skip_serializing)]
     #[clap(long)]
+    /// run without starting server
     pub dry_run: bool,
 }
 
@@ -74,52 +78,40 @@ impl TryFrom<Args> for Config {
 
     type Error = anyhow::Error;
 
-    fn try_from(args: Args) -> Result<Self, Self::Error> {
- 
-        let config_from_file: Option<&mut Args> = match args.config{
+    fn try_from(cmd: Args) -> Result<Self, Self::Error> {
+
+        let config = match cmd.config{
             Some(filename) => {
                 let mut config_file = File::open(filename)?;
                 let mut buf: String = "".into();
                 config_file.read_to_string(&mut buf)?;
-                let args: Args = serde_yaml::from_str(&buf)?;
-            
-                Some(&mut args)
+                let config: Config = serde_yaml::from_str(&buf)?;
+
+                anyhow::Ok(config)
             },
-            None => None
-        };
-
-
-        let preference = args;
-
-        let structured_args = match config_from_file {
-            Some(baseline) => {
-                let wallet_dir = args.wallet_dir.or(baseline.wallet_dir).context("Must include `wallet_dir` in config")?;
-                let listen = prefer_flag("--listen", args.listen, baseline.listen);
-                let network = args.network.or(baseline.network).unwrap_or(NetID::Mainnet);
+            None => {
+                let args = cmd;
+                let network = args.network;
                 let network_addr = args.network_addr
                     .or(first_bootstrap_route(network))
                     .expect(&format!(
                         "No bootstrap nodes available for network: {network:?}"
                     ));
-                let allowed_origins = prefer_flag("--allowed-origin", args.allowed_origin, baseline.allowed_origin);
-                Args {
-                    wallet_dir,
-                    listen,
-                    network,
+                Ok(Config::new(
+                    args.wallet_dir.unwrap(),
+                    args.listen,
+                    args.allowed_origin,
                     network_addr,
-                    
-                }
+                    network,
+                ))
+            }
+        };
+        config
+
         
-            },
-            None => preference,
-        }
-        let network = args.network.unwrap_or(NetID::Mainnet);
-        let network_addr = args.network_addr
-            .or(first_bootstrap_route(network))
-            .expect(&format!(
-                "No bootstrap nodes available for network: {network:?}"
-            ));
+
     }
+
 }
 
 
@@ -130,25 +122,4 @@ fn first_bootstrap_route(network: NetID) -> Option<SocketAddr>{
         Some(routes[0])
     }
 
-}
-
-fn is_flag(s: &str) -> bool{
-        let mut flag = false;
-        for argument in env::args() {
-            if argument == s {
-                flag = true;
-                break;
-            }
-        }
-        flag
-    }
-
-
-fn prefer_flag<T>(flag: &str, preference: T, baseline: T) -> T{
-        if is_flag(flag) {
-            preference
-        }
-        else {
-            baseline // config needs listen. this breaks the idea of config defaults
-        }
 }

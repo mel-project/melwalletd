@@ -8,10 +8,6 @@ mod state;
 mod walletdata;
 use std::convert::TryFrom;
 use std::env;
-use std::fs::File;
-use std::io::Read;
-use std::str::FromStr;
-use std::time::Duration;
 use std::{collections::BTreeMap, ffi::CString, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
@@ -85,7 +81,6 @@ fn main() -> anyhow::Result<()> {
         let addr = config.network_addr;
 
         let db_name = format!("{network:?}-wallets.db").to_ascii_lowercase();
-        println!("{db_name}");
         if output_config {
             println!(
                 "{}",
@@ -121,7 +116,7 @@ fn main() -> anyhow::Result<()> {
             let wallet = multiwallet.get_wallet(&wallet_name)?;
             if db.get_wallet(&wallet_name).await.is_none() {
                 let wallet = wallet.read().clone();
-                log::info!("restoring mainnet {}", wallet_name);
+                log::info!("restoring {} {}",network, wallet_name);
                 db.restore_wallet_dump(&wallet_name, wallet).await;
             }
         }

@@ -33,7 +33,7 @@ pub struct AppState {
 
 ///themelio_bootstrap::checkpoint_height(network).unwrap()
 impl AppState {
-    /// Creates a new appstate, given a mainnet and testnet server.
+    /// Creates a new appstate, given a network server `addr`.
     pub fn new(
         database: Database,
         network: NetID,

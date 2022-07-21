@@ -1,9 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    net::SocketAddr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::{
     database::{Database, Wallet},
@@ -15,9 +10,9 @@ use crate::{
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
-use themelio_nodeprot::{ValClient, TrustedHeight};
+use themelio_nodeprot::{TrustedHeight, ValClient};
 use themelio_stf::melvm::Covenant;
-use themelio_structs::{Address, CoinValue, Denom, NetID, BlockHeight};
+use themelio_structs::{Address, CoinValue, Denom, NetID};
 use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
@@ -44,9 +39,7 @@ impl AppState {
         let client = ValClient::new(network, addr);
         client.trust(trusted_height.clone());
 
-        let _confirm_task = smolscale::spawn(
-            confirm_task(database.clone(), client.clone())
-        );
+        let _confirm_task = smolscale::spawn(confirm_task(database.clone(), client.clone()));
 
         Self {
             database,
@@ -72,7 +65,7 @@ impl AppState {
                     .map(|(k, v)| (hex::encode(&k.to_bytes()), *v))
                     .collect(),
                 total_micromel: balance.get(&Denom::Mel).copied().unwrap_or_default(),
-                network: self.network, 
+                network: self.network,
                 address: wallet.address(),
                 locked: !self.unlocked_signers.contains_key(&name),
                 staked_microsym: Default::default(),
@@ -120,7 +113,7 @@ impl AppState {
             }
         }
     }
-    pub async fn get_wallet(&self, name: &str) -> Option<Wallet>{
+    pub async fn get_wallet(&self, name: &str) -> Option<Wallet> {
         self.database.get_wallet(name).await
     }
     /// Locks a particular wallet.
@@ -132,7 +125,6 @@ impl AppState {
     pub async fn create_wallet(
         &self,
         name: &str,
-        network: NetID,
         key: Ed25519SK,
         pwd: Option<String>,
     ) -> anyhow::Result<()> {
@@ -148,7 +140,6 @@ impl AppState {
         log::info!("created wallet with name {}", name);
         Ok(())
     }
-
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -199,20 +190,6 @@ async fn confirm_task(database: Database, client: ValClient) {
                 log::warn!("failed to snap: {:?}", err);
             }
         }
-        // log::debug!("-- confirm loop sees {} wallets --", possible_wallets.len());
-        // for wallet_name in possible_wallets {
-        //     let wallet = multi.get_wallet(&wallet_name);
-        //     match wallet {
-        //         Err(err) => {
-        //             log::error!("cannot read wallet: {}", err);
-        //         }
-        //         Ok(wallet) => {
-        //             let client = clients[&wallet.read().network()].clone();
-        //             smolscale::spawn(confirm_one(wallet_name, wallet, client, sent.clone()))
-        //                 .detach()
-        //         }
-        //     }
-        // }
         (&mut pacer).await;
     }
 }

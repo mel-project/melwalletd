@@ -7,7 +7,7 @@ mod state;
 
 mod walletdata;
 use std::convert::TryFrom;
-use std::env;
+
 use std::{collections::BTreeMap, ffi::CString, sync::Arc};
 
 use anyhow::Context;
@@ -19,7 +19,7 @@ use state::{AppState, WalletSummary};
 use tap::Tap;
 
 use clap::Parser;
-use tracing::error;
+
 use std::fmt::Debug;
 use themelio_nodeprot::ValClient;
 use themelio_structs::PoolKey;
@@ -38,7 +38,7 @@ fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
     let cors = origins
         .iter()
         .fold(CorsMiddleware::new(), |cors, val| {
-            let s: &str = &val;
+            let s: &str = val;
             cors.allow_origin(s)
         })
         .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
@@ -53,18 +53,17 @@ fn main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
 
-
         let cmd_args = Args::from_args();
 
         let output_config = cmd_args.output_config;
         let dry_run = cmd_args.dry_run;
 
-        let config = match Config::try_from(cmd_args){
+        let config = match Config::try_from(cmd_args) {
             Ok(i) => anyhow::Ok(i),
             Err(err) => {
                 let fmt = format!("Configuration Error: {}", err);
-                return Err(anyhow::anyhow!(fmt))
-            },
+                return Err(anyhow::anyhow!(fmt));
+            }
         }?;
 
         let network = config.network;
@@ -106,7 +105,7 @@ fn main() -> anyhow::Result<()> {
             let wallet = multiwallet.get_wallet(&wallet_name)?;
             if db.get_wallet(&wallet_name).await.is_none() {
                 let wallet = wallet.read().clone();
-                log::info!("restoring {} {}",network, wallet_name);
+                log::info!("restoring {} {}", network, wallet_name);
                 db.restore_wallet_dump(&wallet_name, wallet).await;
             }
         }
@@ -145,19 +144,14 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/unlock").post(unlock_wallet);
         app.at("/wallets/:name/export-sk")
             .post(export_sk_from_wallet);
-        // app.at("/wallets/:name/check").put(check_wallet);
         app.at("/wallets/:name/coins").get(dump_coins);
         app.at("/wallets/:name/prepare-tx").post(prepare_tx);
-        // app.at("/wallets/:name/prepare-stake-tx")
-        //     .post(prepare_stake_tx);
         app.at("/wallets/:name/send-tx").post(send_tx);
         app.at("/wallets/:name/send-faucet").post(send_faucet);
         app.at("/wallets/:name/transactions").get(dump_transactions);
         app.at("/wallets/:name/transactions/:txhash").get(get_tx);
         app.at("/wallets/:name/transactions/:txhash/balance")
             .get(get_tx_balance);
-        // app.at("/wallets/:name/transactions/:txhash")
-        //     .delete(force_revert_tx);
 
         let cors = generate_cors(config.allowed_origins);
 
@@ -167,8 +161,6 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     })
 }
-
-
 
 async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name")?;
@@ -219,7 +211,6 @@ async fn get_pool_info(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         from: String,
         to: String,
         value: u128,
-        testnet: bool,
     }
     #[derive(Serialize)]
     struct Resp {
@@ -283,7 +274,6 @@ async fn list_wallets(req: Request<Arc<AppState>>) -> tide::Result<Body> {
 async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     #[derive(Deserialize)]
     struct Query {
-        testnet: bool,
         password: Option<String>,
         secret: Option<String>,
     }
@@ -303,30 +293,11 @@ async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         tmelcrypt::ed25519_keygen().1
     };
     req.state()
-        .create_wallet(
-            &wallet_name,
-            if query.testnet {
-                NetID::Testnet
-            } else {
-                NetID::Mainnet
-            },
-            sk,
-            query.password,
-        )
+        .create_wallet(&wallet_name, sk, query.password)
         .await
         .context("cannot create wallet")?;
     Ok("".into())
 }
-
-// async fn check_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-//     todo!()
-// }
-
-// async fn sweep_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-//     check_auth(&req)?;
-//     let wallet_name = req.param("name").map(|v| v.to_string())?;
-
-// }
 
 async fn dump_coins(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
@@ -456,7 +427,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .await
         .map_err(to_badreq)?;
 
-    Ok(Body::from_json(&prepared_tx)?)
+    Body::from_json(&prepared_tx)
 }
 
 async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -481,7 +452,7 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .await
         .map_err(to_badreq)?;
     log::info!("sent transaction with hash {}", tx.hash_nosigs());
-    Ok(Body::from_json(&tx.hash_nosigs())?)
+    Body::from_json(&tx.hash_nosigs())
 }
 
 // async fn force_revert_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -601,10 +572,10 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .await
         .context("wtf")
         .map_err(to_badreq)?;
-    if network != NetID::Testnet {
+    if network == NetID::Mainnet {
         return Err(tide::Error::new(
             StatusCode::BadRequest,
-            anyhow::anyhow!("not testnet"),
+            anyhow::anyhow!("faucet is not supported on mainnet"),
         ));
     }
     let tx = Transaction {
@@ -627,7 +598,7 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .commit_sent(tx, BlockHeight(10000000000))
         .await
         .map_err(to_badreq)?;
-    Ok(Body::from_json(&txhash)?)
+    Body::from_json(&txhash)
 }
 
 fn to_badreq<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -> tide::Error {

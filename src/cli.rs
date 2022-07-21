@@ -1,6 +1,6 @@
-use std::{path::PathBuf, net::SocketAddr, convert::TryFrom, fs::File, io::Read};
+use std::{convert::TryFrom, fs::File, io::Read, net::SocketAddr, path::PathBuf};
 
-use clap::{Parser, ArgGroup};
+use clap::{ArgGroup, Parser};
 use serde::*;
 use themelio_structs::NetID;
 
@@ -15,10 +15,9 @@ pub struct Args {
     /// Required: directory of the wallet database
     pub wallet_dir: Option<PathBuf>,
 
-    #[clap(long, default_value="127.0.0.1:11773")]
+    #[clap(long, default_value = "127.0.0.1:11773")]
     /// melwalletd server address
     pub listen: SocketAddr,
-
 
     #[clap(long, short, default_value = "*")]
     /// CORS origins allowed to access daemon
@@ -27,7 +26,7 @@ pub struct Args {
     #[clap(long)]
     pub network_addr: Option<SocketAddr>,
 
-    #[clap(long, default_value="mainnet")]
+    #[clap(long, default_value = "mainnet")]
     pub network: NetID,
 
     #[serde(skip_serializing)]
@@ -45,8 +44,6 @@ pub struct Args {
     pub dry_run: bool,
 }
 
-
-
 #[derive(Deserialize, Debug, Serialize)]
 pub struct Config {
     pub wallet_dir: PathBuf,
@@ -63,7 +60,6 @@ impl Config {
         network_addr: SocketAddr,
         network: NetID,
     ) -> Config {
-       
         Config {
             wallet_dir,
             listen,
@@ -75,12 +71,10 @@ impl Config {
 }
 
 impl TryFrom<Args> for Config {
-
     type Error = anyhow::Error;
 
     fn try_from(cmd: Args) -> Result<Self, Self::Error> {
-
-        let config = match cmd.config{
+        match cmd.config {
             Some(filename) => {
                 let mut config_file = File::open(filename)?;
                 let mut buf: String = "".into();
@@ -88,15 +82,19 @@ impl TryFrom<Args> for Config {
                 let config: Config = serde_yaml::from_str(&buf)?;
 
                 anyhow::Ok(config)
-            },
+            }
             None => {
                 let args = cmd;
                 let network = args.network;
-                let network_addr = args.network_addr
-                    .or(first_bootstrap_route(network))
-                    .expect(&format!(
-                        "No bootstrap nodes available for network: {network:?}"
-                    ));
+                let network_addr = args
+                    .network_addr
+                    .or_else(|| first_bootstrap_route(network))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{}",
+                            "No bootstrap nodes available for network: {network:?}"
+                        )
+                    });
                 Ok(Config::new(
                     args.wallet_dir.unwrap(),
                     args.listen,
@@ -105,21 +103,15 @@ impl TryFrom<Args> for Config {
                     network,
                 ))
             }
-        };
-        config
-
-        
-
+        }
     }
-
 }
 
-
-fn first_bootstrap_route(network: NetID) -> Option<SocketAddr>{
+fn first_bootstrap_route(network: NetID) -> Option<SocketAddr> {
     let routes = themelio_bootstrap::bootstrap_routes(network);
-    if routes.is_empty(){ None }
-    else {
+    if routes.is_empty() {
+        None
+    } else {
         Some(routes[0])
     }
-
 }

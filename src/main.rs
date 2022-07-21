@@ -1,6 +1,5 @@
 mod cli;
 mod database;
-mod multi;
 mod secrets;
 mod signer;
 mod state;
@@ -13,7 +12,6 @@ use std::{collections::BTreeMap, ffi::CString, sync::Arc};
 use anyhow::Context;
 use base32::Alphabet;
 use http_types::headers::HeaderValue;
-use multi::LegacyMultiWallet;
 use serde::{Deserialize, Serialize};
 use state::{AppState, WalletSummary};
 use tap::Tap;
@@ -91,24 +89,10 @@ fn main() -> anyhow::Result<()> {
                 0o700,
             );
         }
-        let multiwallet = LegacyMultiWallet::open(&config.wallet_dir)?;
-        log::info!(
-            "opened LEGACY wallet directory: {:?}",
-            multiwallet.list().collect::<Vec<_>>()
-        );
-
         let db = Database::open(config.wallet_dir.clone().tap_mut(|p| p.push(db_name))).await?;
 
         let client = ValClient::new(network, addr);
         client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
-        for wallet_name in multiwallet.list() {
-            let wallet = multiwallet.get_wallet(&wallet_name)?;
-            if db.get_wallet(&wallet_name).await.is_none() {
-                let wallet = wallet.read().clone();
-                log::info!("restoring {} {}", network, wallet_name);
-                db.restore_wallet_dump(&wallet_name, wallet).await;
-            }
-        }
 
         let mut secret_path = config.wallet_dir.clone();
         secret_path.push(".secrets.json");

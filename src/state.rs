@@ -4,7 +4,6 @@ use crate::{
     database::{Database, Wallet},
     secrets::{EncryptedSK, PersistentSecret, SecretStore},
     signer::Signer,
-    walletdata::LegacyWalletData,
 };
 
 use dashmap::DashMap;
@@ -151,12 +150,6 @@ pub struct WalletSummary {
     #[serde(with = "stdcode::asstr")]
     pub address: Address,
     pub locked: bool,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WalletDump {
-    pub summary: WalletSummary,
-    pub full: LegacyWalletData,
 }
 
 // task that periodically pulls random coins to try to confirm

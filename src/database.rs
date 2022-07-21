@@ -16,8 +16,6 @@ use themelio_structs::{
     TxKind,
 };
 
-use crate::walletdata::LegacyWalletData;
-
 use self::pool::ConnPool;
 
 mod pool;
@@ -115,36 +113,6 @@ impl Database {
             params![name, covhash.to_string(), covenant.0],
         )?;
         Ok(())
-    }
-
-    /// Restore a wallet dump.
-    pub async fn restore_wallet_dump(&self, name: &str, dump: LegacyWalletData) {
-        let mut conn = self.pool.get_conn().await;
-        let txn = conn.transaction().unwrap();
-        for (cid, cdh) in dump.unspent_coins.into_iter() {
-            txn.execute(
-                "insert into coins values ($1, $2, $3, $4, $5) on conflict do nothing",
-                params![
-                    &cid.to_string(),
-                    &cdh.coin_data.covhash.to_string(),
-                    cdh.coin_data.value.0.to_string(),
-                    &cdh.coin_data.denom.to_bytes(),
-                    &cdh.coin_data.additional_data.clone(),
-                ],
-            )
-            .expect("db failed");
-            txn.execute(
-                "insert into coin_confirmations values ($1, $2) on conflict do nothing",
-                params![cid.to_string(), cdh.height.0],
-            )
-            .expect("fail");
-        }
-        txn.execute(
-            "insert into wallet_names values ($1, $2, $3) on conflict (name) do update set covhash = excluded.covhash",
-            params![name, dump.my_covenant.hash().to_string(), dump.my_covenant.0],
-        )
-        .expect("db failed");
-        txn.commit().unwrap();
     }
 
     /// Retransmit pending transactions

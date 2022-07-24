@@ -406,6 +406,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
                 Ok(tx)
             },
             request.nobalance.clone(),
+            req.state().client.snapshot().await?,
         )
         .await
         .map_err(to_badreq)?;

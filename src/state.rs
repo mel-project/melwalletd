@@ -9,7 +9,7 @@ use crate::{
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
-use themelio_nodeprot::{TrustedHeight, ValClient};
+use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
 use themelio_structs::{Address, CoinValue, Denom, NetID};
 use tmelcrypt::Ed25519SK;
@@ -32,7 +32,7 @@ impl AppState {
         database: Database,
         network: NetID,
         secrets: SecretStore,
-        addr: SocketAddr,
+        _addr: SocketAddr,
         client: ValClient,
     ) -> Self {
         let _confirm_task = smolscale::spawn(confirm_task(database.clone(), client.clone()));
@@ -68,11 +68,6 @@ impl AppState {
             toret.insert(name, summary);
         }
         toret
-    }
-
-    /// Returns a single summary of a wallet.
-    pub async fn wallet_summary(&self, name: &str) -> Option<WalletSummary> {
-        self.list_wallets().await.get(name).cloned()
     }
 
     /// Obtains the signer of a wallet. If the wallet is still locked, returns None.

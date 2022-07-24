@@ -337,6 +337,8 @@ impl Wallet {
         fee_multiplier: u128,
         sign: impl Fn(Transaction) -> anyhow::Result<Transaction>,
         nobalance: Vec<Denom>,
+
+        snap: ValClientSnapshot,
     ) -> anyhow::Result<Transaction> {
         let mut nobalance = nobalance;
         nobalance.push(Denom::NewCoin);
@@ -344,11 +346,13 @@ impl Wallet {
         let mut mandatory_inputs = BTreeMap::new();
         // first we add the "mandatory" inputs
         for input in inputs {
-            let coindata = self
-                .get_coin_confirmation(input)
-                .await
-                .context("mandatory input not found in wallet")?;
-            mandatory_inputs.insert(input, coindata.clone());
+            if let Some(coindata) = self.get_coin_confirmation(input).await {
+                mandatory_inputs.insert(input, coindata.clone());
+            } else {
+                log::warn!("processing out-of-wallet coin {}", input);
+                let coindata = snap.get_coin(input).await?.context("cannot find coin")?;
+                mandatory_inputs.insert(input, coindata.clone());
+            }
         }
         log::trace!("calling get_coin_mapping from prepare");
         let unspent_coins = self.get_coin_mapping(true, false).await;

@@ -22,7 +22,7 @@ pub struct AppState {
     pub unlocked_signers: DashMap<String, Arc<dyn Signer>>,
     pub secrets: SecretStore,
     pub _confirm_task: smol::Task<()>,
-    pub trusted_height: TrustedHeight,
+    // pub trusted_height: TrustedHeight,
 }
 
 ///themelio_bootstrap::checkpoint_height(network).unwrap()
@@ -33,11 +33,8 @@ impl AppState {
         network: NetID,
         secrets: SecretStore,
         addr: SocketAddr,
-        trusted_height: TrustedHeight,
+        client: ValClient,
     ) -> Self {
-        let client = ValClient::new(network, addr);
-        client.trust(trusted_height.clone());
-
         let _confirm_task = smolscale::spawn(confirm_task(database.clone(), client.clone()));
 
         Self {
@@ -47,7 +44,6 @@ impl AppState {
             unlocked_signers: Default::default(),
             secrets,
             _confirm_task,
-            trusted_height,
         }
     }
 

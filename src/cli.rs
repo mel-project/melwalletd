@@ -24,9 +24,11 @@ pub struct Args {
     pub allowed_origin: Vec<String>, // TODO: validate as urls
 
     #[clap(long)]
+    /// Address of some full node. Mandatory for networks other than "mainnet" and "testnet"
     pub network_addr: Option<SocketAddr>,
 
     #[clap(long, default_value = "mainnet")]
+    /// Network ID. "mainnet", "testnet", "custom02", etc
     pub network: NetID,
 
     #[serde(skip_serializing)]

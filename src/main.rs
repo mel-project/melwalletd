@@ -92,19 +92,18 @@ fn main() -> anyhow::Result<()> {
         let db = Database::open(config.wallet_dir.clone().tap_mut(|p| p.push(db_name))).await?;
 
         let client = ValClient::new(network, addr);
-        client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
+        if network == NetID::Mainnet || network == NetID::Testnet {
+            client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
+        } else {
+            log::warn!("** BLINDLY TRUSTING FULL NODE due to custom network **");
+            client.insecure_latest_snapshot().await?;
+        }
 
         let mut secret_path = config.wallet_dir.clone();
         secret_path.push(".secrets.json");
         let secrets = SecretStore::open(&secret_path)?;
 
-        let state = AppState::new(
-            db,
-            network,
-            secrets,
-            addr,
-            themelio_bootstrap::checkpoint_height(network).unwrap(),
-        );
+        let state = AppState::new(db, network, secrets, addr, client);
 
         let mut app = tide::with_state(Arc::new(state));
         // set CORS

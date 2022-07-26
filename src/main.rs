@@ -51,6 +51,7 @@ fn main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
 
+        // let clap = __clap;
         let cmd_args = Args::from_args();
 
         let output_config = cmd_args.output_config;

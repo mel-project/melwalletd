@@ -716,7 +716,7 @@ impl Wallet {
                     .transactions
                     .into_iter()
                     .find(|tx| tx.inputs.contains(disappeared_coin))
-                    .expect("bug: digged for the coin in the wrong place");
+                    .context("bug: digged for the coin in the wrong place")?;
                 log::debug!("found spender: {}", spender_tx.hash_nosigs());
                 // we don't have to revisit other coins this same spender spends
                 for input in spender_tx.inputs.iter() {

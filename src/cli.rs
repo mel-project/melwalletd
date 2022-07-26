@@ -2,46 +2,55 @@ use std::{convert::TryFrom, fs::File, io::Read, net::SocketAddr, path::PathBuf};
 
 use clap::{ArgGroup, Parser};
 use serde::*;
+use terminal_size::{terminal_size, Width};
 use themelio_structs::NetID;
-
 #[derive(Parser, Clone, Deserialize, Debug)]
 #[clap(group(
     ArgGroup::new("options")
         .required(true)
-        .args(&["wallet-dir", "config"]),
-))]
+        .args(&["wallet-dir", "config"])),
+    max_term_width(1024),
+    term_width(
+        if let Some((Width(w), _)) = terminal_size(){
+            w as usize
+        }
+        else{120}
+    ),
+)]
 pub struct Args {
-    #[clap(long)]
+    #[clap(long, display_order(1))]
     /// Required: directory of the wallet database
     pub wallet_dir: Option<PathBuf>,
 
-    #[clap(long, default_value = "127.0.0.1:11773")]
-    /// melwalletd server address
+    #[clap(long, default_value = "mainnet", display_order(2))]
+    /// Network ID: "testnet", "custom02",...
+    pub network: NetID,
+
+    #[clap(long, display_order(3))]
+    /// IP of full node on specified `network`; Required when not collecting to "mainnet" or "testnet"
+    pub connect: Option<SocketAddr>,
+
+    #[clap(long, default_value = "127.0.0.1:11773", display_order(4))]
+    /// IP to host melwalletd server
     pub listen: SocketAddr,
 
-    #[clap(long, short, default_value = "*")]
+    #[clap(long, short, default_value = "*", display_order(998))]
     /// CORS origins allowed to access daemon
     pub allowed_origin: Vec<String>, // TODO: validate as urls
 
-    #[clap(long)]
-    /// Address of some full node. Mandatory for networks other than "mainnet" and "testnet"
-    pub network_addr: Option<SocketAddr>,
-
-    #[clap(long, default_value = "mainnet")]
-    /// Network ID. "mainnet", "testnet", "custom02", etc
-    pub network: NetID,
 
     #[serde(skip_serializing)]
-    #[clap(long)]
+    #[clap(long, display_order(998))]
+    /// 
     pub config: Option<String>,
 
     #[serde(skip_serializing)]
-    #[clap(long)]
+    #[clap(long, display_order(998))]
     /// send the generated config to stdout
     pub output_config: bool,
 
     #[serde(skip_serializing)]
-    #[clap(long)]
+    #[clap(long, display_order(998))]
     /// run without starting server
     pub dry_run: bool,
 }
@@ -89,7 +98,7 @@ impl TryFrom<Args> for Config {
                 let args = cmd;
                 let network = args.network;
                 let network_addr = args
-                    .network_addr
+                    .connect
                     .or_else(|| first_bootstrap_route(network))
                     .unwrap_or_else(|| {
                         panic!(

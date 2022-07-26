@@ -51,6 +51,7 @@ fn main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
 
+        // let clap = __clap;
         let cmd_args = Args::from_args();
 
         let output_config = cmd_args.output_config;
@@ -106,7 +107,9 @@ fn main() -> anyhow::Result<()> {
         let state = AppState::new(db, network, secrets, addr, client);
 
         let mut app = tide::with_state(Arc::new(state));
-        // set CORS
+
+        app.with(tide::utils::Before(log_request));
+
         // interpret errors
         app.with(tide::utils::After(|mut res: tide::Response| async move {
             if let Some(err) = res.error() {
@@ -139,12 +142,18 @@ fn main() -> anyhow::Result<()> {
         let cors = generate_cors(config.allowed_origins);
 
         app.with(cors);
+        
+        log::info!("Starting server at {}", config.listen);
         app.listen(config.listen).await?;
 
         Ok(())
     })
 }
 
+async fn log_request<T> (req: Request<T>) -> Request<T> {
+    log::info!("{}", req.url());
+    req
+}
 async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name")?;
     let wallet_list = req.state().list_wallets().await;

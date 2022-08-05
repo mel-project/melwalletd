@@ -523,20 +523,20 @@ impl Wallet {
     pub async fn commit_sent(&self, txn: Transaction, timeout: BlockHeight) -> anyhow::Result<()> {
         let mut conn = self.pool.get_conn().await;
         let conn = conn.transaction()?;
-        // ensure that every input is available
-        for input in txn.inputs.iter() {
-            if conn
-                .query_row(
-                    "select height from coin_confirmations where coinid = $1",
-                    params![input.to_string()],
-                    |_| Ok(()),
-                )
-                .optional()?
-                .is_none()
-            {
-                anyhow::bail!("input {} no longer in wallet", input)
-            }
-        }
+        // // ensure that every input is available
+        // for input in txn.inputs.iter() {
+        //     if conn
+        //         .query_row(
+        //             "select height from coin_confirmations where coinid = $1",
+        //             params![input.to_string()],
+        //             |_| Ok(()),
+        //         )
+        //         .optional()?
+        //         .is_none()
+        //     {
+        //         anyhow::bail!("input {} no longer in wallet", input)
+        //     }
+        // }
         // add the transaction to the cache
         let txhash = txn.hash_nosigs();
         conn.execute(

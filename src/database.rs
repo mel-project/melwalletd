@@ -479,7 +479,11 @@ impl Wallet {
             match signed_txn {
                 Ok(signed_txn) => {
                     if signed_txn.fee
-                        <= signed_txn.base_fee(fee_multiplier, 0, covenant_weight_from_bytes) * 21
+                        <= signed_txn.base_fee(
+                            fee_multiplier,
+                            fee_ballast as _,
+                            covenant_weight_from_bytes,
+                        ) * 21
                             / 20
                     {
                         Direction::Low(Ok(signed_txn))

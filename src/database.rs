@@ -337,6 +337,7 @@ impl Wallet {
         fee_multiplier: u128,
         sign: impl Fn(Transaction) -> anyhow::Result<Transaction>,
         nobalance: Vec<Denom>,
+        fee_ballast: usize,
 
         snap: ValClientSnapshot,
     ) -> anyhow::Result<Transaction> {
@@ -496,10 +497,12 @@ impl Wallet {
             .sum();
         let max_fee = match gen_transaction(CoinValue(0u128)) {
             Direction::Low(Ok(t)) => {
-                t.base_fee(fee_multiplier, 0, covenant_weight_from_bytes) * 3 + CoinValue(100)
+                t.base_fee(fee_multiplier, fee_ballast as _, covenant_weight_from_bytes) * 3
+                    + CoinValue(100)
             }
             Direction::High(Ok(t)) => {
-                t.base_fee(fee_multiplier, 0, covenant_weight_from_bytes) * 3 + CoinValue(100)
+                t.base_fee(fee_multiplier, fee_ballast as _, covenant_weight_from_bytes) * 3
+                    + CoinValue(100)
             }
             _ => max_fee,
         };

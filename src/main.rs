@@ -364,6 +364,8 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         covenants: Vec<Vec<u8>>,
         #[serde(default)]
         nobalance: Vec<Denom>,
+        #[serde(default)]
+        fee_ballast: usize,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
@@ -410,6 +412,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
                 Ok(tx)
             },
             request.nobalance.clone(),
+            request.fee_ballast,
             req.state().client.snapshot().await?,
         )
         .await

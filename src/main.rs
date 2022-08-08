@@ -5,8 +5,10 @@ mod signer;
 mod state;
 
 mod walletdata;
+use core::fmt;
 use std::convert::TryFrom;
 
+use std::error;
 use std::{collections::BTreeMap, ffi::CString, sync::Arc};
 
 use anyhow::Context;
@@ -142,7 +144,7 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/transactions/:txhash").get(get_tx);
         app.at("/wallets/:name/transactions/:txhash/balance")
             .get(get_tx_balance);
-
+        app.at("/network").get(get_network);
         let cors = generate_cors(config.allowed_origins);
 
         app.with(cors);
@@ -163,6 +165,10 @@ async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .context("wallet not found")
         .map_err(to_notfound)?;
     Body::from_json(&wallets)
+}
+async fn log_request<T>(req: Request<T>) -> Request<T> {
+    log::info!("{}", req.url());
+    req
 }
 
 async fn get_summary(req: Request<Arc<AppState>>) -> tide::Result<Body> {
@@ -258,13 +264,18 @@ async fn list_wallets(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     Body::from_json(&req.state().list_wallets().await)
 }
 
+
+
 async fn create_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug, Default)]
     struct Query {
         password: Option<String>,
         secret: Option<String>,
     }
-    let query: Query = req.body_json().await?;
+    
+    let body = &req.body_string().await?;
+    let query: Query = serde_json::from_str(body)?;
+
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let sk = if let Some(secret) = query.secret {
         // We must reconstruct the secret key using the ed25519-dalek library
@@ -444,6 +455,11 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .map_err(to_badreq)?;
     log::info!("sent transaction with hash {}", tx.hash_nosigs());
     Body::from_json(&tx.hash_nosigs())
+}
+
+async fn get_network(req: Request<Arc<AppState>>) -> tide::Result<Body> {
+    let client = &req.state().client;
+    Body::from_json(&client.netid())
 }
 
 // async fn force_revert_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {

@@ -13,7 +13,7 @@ use anyhow::Context;
 use base32::Alphabet;
 use http_types::headers::HeaderValue;
 use serde::{Deserialize, Serialize};
-use state::{AppState, WalletSummary};
+use state::AppState;
 use tap::Tap;
 
 use clap::Parser;
@@ -108,6 +108,10 @@ fn main() -> anyhow::Result<()> {
 
         let mut app = tide::with_state(Arc::new(state));
 
+        async fn log_request<T>(req: Request<T>) -> Request<T> {
+            log::info!("{}", req.url());
+            req
+        }
         app.with(tide::utils::Before(log_request));
 
         // interpret errors
@@ -142,7 +146,7 @@ fn main() -> anyhow::Result<()> {
         let cors = generate_cors(config.allowed_origins);
 
         app.with(cors);
-        
+
         log::info!("Starting server at {}", config.listen);
         app.listen(config.listen).await?;
 
@@ -150,29 +154,20 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-async fn log_request<T> (req: Request<T>) -> Request<T> {
-    log::info!("{}", req.url());
-    req
-}
 async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name")?;
     let wallet_list = req.state().list_wallets().await;
-    let wallets = summarize_wallet_raw(wallet_name, wallet_list)
-        .await
-        .context("idk");
-    Body::from_json(&wallets?)
-}
-
-async fn summarize_wallet_raw(
-    wallet_name: &str,
-    wallet_list: BTreeMap<String, WalletSummary>,
-) -> Option<WalletSummary> {
-    wallet_list.get(wallet_name).cloned()
+    let wallets = wallet_list
+        .get(wallet_name)
+        .cloned()
+        .context("wallet not found")
+        .map_err(to_notfound)?;
+    Body::from_json(&wallets)
 }
 
 async fn get_summary(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let client = req.state().client.clone();
-    let snap = client.snapshot().await?;
+    let snap = client.snapshot().await.map_err(to_badgateway)?;
     Body::from_json(&snap.current_header())
 }
 
@@ -369,6 +364,8 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         covenants: Vec<Vec<u8>>,
         #[serde(default)]
         nobalance: Vec<Denom>,
+        #[serde(default)]
+        fee_ballast: usize,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
@@ -415,6 +412,7 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
                 Ok(tx)
             },
             request.nobalance.clone(),
+            request.fee_ballast,
             req.state().client.snapshot().await?,
         )
         .await

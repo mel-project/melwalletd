@@ -144,7 +144,6 @@ fn main() -> anyhow::Result<()> {
         app.at("/wallets/:name/transactions/:txhash").get(get_tx);
         app.at("/wallets/:name/transactions/:txhash/balance")
             .get(get_tx_balance);
-        app.at("/network").get(get_network);
         let cors = generate_cors(config.allowed_origins);
 
         app.with(cors);
@@ -184,6 +183,7 @@ async fn get_pool(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .replace(':', "/")
         .parse()
         .map_err(to_badreq)?;
+    println!("You get a pool key: {}", pool_key);
     let pool_key = pool_key
         .to_canonical()
         .ok_or_else(|| to_badreq(anyhow::anyhow!("bad pool key")))?;
@@ -455,11 +455,6 @@ async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
         .map_err(to_badreq)?;
     log::info!("sent transaction with hash {}", tx.hash_nosigs());
     Body::from_json(&tx.hash_nosigs())
-}
-
-async fn get_network(req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    let client = &req.state().client;
-    Body::from_json(&client.netid())
 }
 
 // async fn force_revert_tx(req: Request<Arc<AppState>>) -> tide::Result<Body> {

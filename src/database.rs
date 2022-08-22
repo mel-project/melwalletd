@@ -504,8 +504,8 @@ impl Wallet {
             _ => max_fee,
         };
         let (_, (_, val)) = binary_search::binary_search(
-            (0u128, Err(anyhow::anyhow!("nothing"))),
-            (max_fee.0, Err(anyhow::anyhow!("nothing"))),
+            (0u128, Err(anyhow::anyhow!("Not enough MEL in wallet "))),
+            (max_fee.0, Err(anyhow::anyhow!("Not enough MEL to pay fee"))),
             |a| gen_transaction(CoinValue(a)),
         );
         log::debug!("prepared TX with fee {:?}", val.as_ref().map(|v| v.fee));

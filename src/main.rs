@@ -25,7 +25,7 @@ use themelio_structs::{
     BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, Transaction, TxKind,
 };
 use tide::security::CorsMiddleware;
-use tide::{Body, Request, StatusCode};
+use tide::{Body, Request, StatusCode, Response};
 use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 use walletdata::{AnnCoinID, TransactionStatus};
 
@@ -158,9 +158,11 @@ async fn summarize_wallet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name")?;
     let wallet_list = req.state().list_wallets().await;
     let wallets = summarize_wallet_raw(wallet_name, wallet_list)
-        .await
-        .context("idk");
-    Body::from_json(&wallets?)
+        .await        
+        .context("Not Found")
+        .map_err(to_notfound)?;
+    Body::from_json(&wallets)
+
 }
 
 async fn summarize_wallet_raw(

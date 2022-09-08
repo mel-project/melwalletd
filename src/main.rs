@@ -364,20 +364,20 @@ async fn export_sk_from_wallet(mut req: Request<Arc<AppState>>) -> tide::Result<
 // }
 
 async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug)]
     struct Req {
         #[serde(default)]
+        kind: Option<TxKind>,
         inputs: Vec<CoinID>,
         outputs: Vec<CoinData>,
-        signing_key: Option<String>,
-        kind: Option<TxKind>,
-        data: Option<String>,
         #[serde(default, with = "stdcode::hexvec")]
         covenants: Vec<Vec<u8>>,
+        data: Option<String>,
         #[serde(default)]
         nobalance: Vec<Denom>,
         #[serde(default)]
         fee_ballast: usize,
+        signing_key: Option<String>,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
@@ -435,8 +435,15 @@ async fn prepare_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
 
 async fn send_tx(mut req: Request<Arc<AppState>>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
-    let tx: Transaction = req.body_json().await?;
-
+    let tx: Result<Transaction,_> = req.body_json().await;
+    match tx{
+        Ok(_) => println!("good tx"),
+        Err(e) => {
+            println!("{e:?}");
+            return Err(e);
+        },
+    }
+    let tx = tx?;
     let wallet = req
         .state()
         .get_wallet(&wallet_name)
@@ -595,6 +602,7 @@ async fn send_faucet(req: Request<Arc<AppState>>) -> tide::Result<Body> {
         covenants: vec![],
         sigs: vec![],
     };
+    println!("{}",::serde_json::to_string_pretty(&tx)?);
     // we mark the TX as sent in this thread
     let txhash = tx.hash_nosigs();
     wallet

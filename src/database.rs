@@ -329,6 +329,7 @@ impl Wallet {
         toret
     }
 
+    #[allow(clippy::too_many_arguments)]
     /// Prepares transactions
     pub async fn prepare(
         &self,

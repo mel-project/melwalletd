@@ -5,7 +5,7 @@
 
 As with other UTXO-based blockchains like Bitcoin that lacks an "account" abstraction, Themelio requires somewhat involved logic for _wallets_ --- software that manages on-chain assets and provides an interface roughly similar to a bank account.
 
-In Themelio, the "canonical" wallet software is **melwalletd**, a headless program that internally manages wallets and exposes a local REST API for operations on the wallets. Although you can use it directly as a Themelio wallet, melwalletd is intended more as a backend to wallet apps, such as[**melwallet-cli**](https://github.com/themeliolabs/melwallet-client), the official CLI wallet.
+In Themelio, the "canonical" wallet software is **melwalletd**, a headless program that internally manages wallets and exposes a local REST API for operations on the wallets. Although you can use it directly as a Themelio wallet, melwalletd is intended more as a backend to wallet apps, such as [**melwallet-cli**](https://github.com/themeliolabs/melwallet-client), the official CLI wallet.
 
 ---
 

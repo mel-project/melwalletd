@@ -1748,6 +1748,7 @@ dependencies = [
  "themelio-nodeprot",
  "themelio-stf",
  "themelio-structs",
+ "thiserror",
  "tide",
  "tmelcrypt",
  "tracing",

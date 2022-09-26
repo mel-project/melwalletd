@@ -3,8 +3,10 @@ mod database;
 mod secrets;
 mod signer;
 mod state;
-mod wallet_utils;
 mod walletdata;
+
+mod protocol;
+
 use std::convert::TryFrom;
 
 use std::{ ffi::CString, sync::Arc};
@@ -26,7 +28,7 @@ use tide::{Request};
 
 use crate::cli::*;
 use crate::{database::Database, secrets::SecretStore};
-use crate::wallet_utils::*;
+use crate::protocol::endpoints::*;
 
 fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
     let cors = origins

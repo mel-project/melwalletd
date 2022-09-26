@@ -66,6 +66,7 @@ serde_yaml = "0.8.26"
 display_json = "0.2.1"
 terminal_size = "0.2.1"
 nanorpc = "0.1.7"
+thiserror = "1.0.36"
 # prevent key derivation from being ridiculously slow
 [profile.dev.package.rust-argon2]
 opt-level = 3 

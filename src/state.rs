@@ -1,9 +1,8 @@
-use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, net::SocketAddr, sync::{Arc}, time::Duration};
 
 use crate::{
     database::{Database, Wallet},
-    secrets::{EncryptedSK, PersistentSecret, SecretStore},
-    signer::Signer,
+    secrets::{EncryptedSK, PersistentSecret, SecretStore}, signer::Signer,
 };
 
 use dashmap::DashMap;
@@ -15,7 +14,7 @@ use themelio_structs::{Address, CoinValue, Denom, NetID};
 use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
-pub struct AppState {
+pub struct AppState{
     pub database: Database,
     pub network: NetID,
     pub client: ValClient,

@@ -1,4 +1,3 @@
-
 use std::{convert::TryFrom, fs::File, io::Read, net::SocketAddr, path::PathBuf};
 
 use clap::{ArgGroup, Parser};
@@ -39,10 +38,9 @@ pub struct Args {
     /// CORS origins allowed to access daemon
     pub allowed_origin: Vec<String>, // TODO: validate as urls
 
-
     #[serde(skip_serializing)]
     #[clap(long, display_order(998))]
-    /// 
+    ///
     pub config: Option<String>,
 
     #[serde(skip_serializing)]
@@ -54,8 +52,6 @@ pub struct Args {
     #[clap(long, display_order(998))]
     /// run without starting server
     pub dry_run: bool,
-
-    
 }
 
 #[derive(Deserialize, Debug, Serialize)]

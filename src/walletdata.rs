@@ -1,11 +1,6 @@
-
-
 use serde::{Deserialize, Serialize};
 
-
-use themelio_structs::{
-    BlockHeight, CoinData, Transaction,
-};
+use themelio_structs::{BlockHeight, CoinData, Transaction};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TransactionStatus {

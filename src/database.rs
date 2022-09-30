@@ -7,7 +7,9 @@ use std::{
 
 use anyhow::Context;
 use binary_search::Direction;
+use melnet::MelnetError;
 use rusqlite::{params, OptionalExtension};
+use serde::{Serialize, Deserialize};
 use stdcode::StdcodeSerializeExt;
 use themelio_nodeprot::ValClientSnapshot;
 use themelio_stf::melvm::{covenant_weight_from_bytes, Covenant};
@@ -15,10 +17,31 @@ use themelio_structs::{
     Address, BlockHeight, CoinData, CoinDataHeight, CoinID, CoinValue, Denom, Transaction, TxHash,
     TxKind,
 };
+use thiserror::Error;
 
 use self::pool::ConnPool;
 
 mod pool;
+
+#[derive(Debug, Error, Serialize, Deserialize)]
+pub enum DatabaseError {
+    #[error("{0}")]
+    SQLError(String),
+    #[error("{0}")]
+    ClientError(String),
+}
+
+impl From<rusqlite::Error> for DatabaseError{
+    fn from(e: rusqlite::Error) -> Self {
+        Self::SQLError(e.to_string())
+    }
+}
+
+impl From<MelnetError> for DatabaseError{
+    fn from(e: MelnetError) -> Self {
+        Self::ClientError(e.to_string())
+    }
+}
 
 /// A database that holds wallets.
 #[derive(Clone)]
@@ -159,7 +182,7 @@ impl Wallet {
         &self,
         txhash: TxHash,
         fut_snapshot: impl Future<Output = anyhow::Result<ValClientSnapshot>>,
-    ) -> anyhow::Result<Option<Transaction>> {
+    ) -> Result<Option<Transaction>, DatabaseError> {
         // if cached, get cached
         if let Some(tx) = self.get_cached_transaction(txhash).await {
             return Ok(Some(tx));
@@ -180,7 +203,8 @@ impl Wallet {
         };
         // now great, we've found a relevant coin and where that coin was created. this gives us enough info to find the actual transaction.
         let txn = if let Some(txn) = fut_snapshot
-            .await?
+            .await
+            .map_err(|e| MelnetError::Custom(e.to_string()))?
             .get_older(cdh.height)
             .await?
             .get_transaction(txhash)

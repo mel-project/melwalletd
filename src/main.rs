@@ -81,11 +81,27 @@ fn main() -> anyhow::Result<()> {
 
         let state = Arc::new(AppState::new(db, network, secrets, addr, client));
         let rpc = Arc::new(MelwalletdRpcImpl{state});
-        let listen = config.listen.clone();
+        let config = Arc::new(config);
+        
+        
+        let legacy_server = {
+            let app: Server<Arc<MelwalletdRpcImpl>> = crate::protocol::legacy::init_server(config.clone(), rpc.clone()).await?;
+            let listen = config.listen.clone();
+            let legacy = crate::protocol::legacy::legacy_server(app).await?;
+            smolscale::spawn(legacy.listen(listen))
+        };
+
+        let rpc_server ={
+            let mut listen = config.listen.clone();
+            listen.set_port(listen.port() + 1);
+            let app: Server<Arc<MelwalletdRpcImpl>> = crate::protocol::legacy::init_server(config.clone(), rpc.clone()).await?;
+            let listen = config.listen.clone();
+            let legacy = crate::protocol::legacy::rpc_server(app).await?;
+            smolscale::spawn(legacy.listen(listen))
+
+        };
 
 
-        let app: Server<Arc<MelwalletdRpcImpl>> = crate::protocol::legacy::tide_server(config, rpc).await?;
-        app.listen(listen).await?;
 
 
 

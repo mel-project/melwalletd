@@ -131,16 +131,7 @@ impl AppState {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WalletSummary {
-    pub total_micromel: CoinValue,
-    pub detailed_balance: BTreeMap<String, CoinValue>,
-    pub staked_microsym: CoinValue,
-    pub network: NetID,
-    #[serde(with = "stdcode::asstr")]
-    pub address: Address,
-    pub locked: bool,
-}
+
 
 // task that periodically pulls random coins to try to confirm
 async fn confirm_task(database: Database, client: ValClient) {

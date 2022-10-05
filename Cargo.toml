@@ -71,6 +71,8 @@ melnet = "0.2.27"
 async-trait = "0.1.57"
 route-recognizer = "0.3.1"
 futures = "0.3.24"
+melwalletd-prot = {path = "../melwalletd-prot"}
+
 # prevent key derivation from being ridiculously slow
 [profile.dev.package.rust-argon2]
 opt-level = 3 

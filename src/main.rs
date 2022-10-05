@@ -1,32 +1,29 @@
 mod cli;
 mod database;
+mod protocol;
 mod secrets;
 mod signer;
 mod state;
 mod walletdata;
-mod protocol;
 use std::convert::TryFrom;
 
 use std::{ffi::CString, sync::Arc};
 
 use anyhow::Context;
 
-use protocol::protocol::MelwalletdRpcImpl;
+use protocol::protocol::{MelwalletdRpcImpl, MelwalletdService};
 use state::AppState;
 use tap::Tap;
 
 use clap::Parser;
 use tide::Server;
 
-
-
-
-
 use crate::cli::*;
 // use crate::protocol::legacy::melwalletd_http_server;
 use crate::{database::Database, secrets::SecretStore};
 use themelio_nodeprot::ValClient;
 use themelio_structs::NetID;
+
 
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
@@ -79,32 +76,33 @@ fn main() -> anyhow::Result<()> {
             client.insecure_latest_snapshot().await?;
         }
 
+        // Prepare to create server
         let state = Arc::new(AppState::new(db, network, secrets, addr, client));
-        let rpc = Arc::new(MelwalletdRpcImpl{state});
+        let rpc = MelwalletdRpcImpl { state };
         let config = Arc::new(config);
-        
-        
-        let legacy_server = {
-            let app: Server<Arc<MelwalletdRpcImpl>> = crate::protocol::legacy::init_server(config.clone(), rpc.clone()).await?;
-            let listen = config.listen.clone();
-            let legacy = crate::protocol::legacy::legacy_server(app).await?;
-            smolscale::spawn(legacy.listen(listen))
+
+      
+        let legacy_server = match config.legacy_listen {
+            Some(sock) => {
+                let app: Server<Arc<MelwalletdRpcImpl>> =
+                    crate::protocol::legacy::init_server(config.clone(), rpc.clone()).await?;
+                let legacy_endpoints = crate::protocol::legacy::legacy_server(app).await?;
+                let server = legacy_endpoints.listen(sock);
+                log::info!("Starting legacy server at {}", sock);
+                Some(smolscale::spawn(server))
+            }
+            _ => None
         };
-
-        let rpc_server ={
-            let mut listen = config.listen.clone();
-            listen.set_port(listen.port() + 1);
-            let app: Server<Arc<MelwalletdRpcImpl>> = crate::protocol::legacy::init_server(config.clone(), rpc.clone()).await?;
-            let listen = config.listen.clone();
-            let legacy = crate::protocol::legacy::rpc_server(app).await?;
-            smolscale::spawn(legacy.listen(listen))
-
+    
+        {
+            let app: Server<Arc<MelwalletdRpcImpl>> =
+                crate::protocol::legacy::init_server(config.clone(), rpc.clone()).await?;
+            let service = MelwalletdService(rpc.clone());
+            let sock = config.listen.clone();
+            let legacy = crate::protocol::legacy::rpc_server(app, service).await?;
+            log::info!("Starting rpc server at {}", config.listen);
+            legacy.listen(sock).await?
         };
-
-
-
-
-
 
         Ok(())
     })

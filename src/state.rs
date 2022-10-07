@@ -92,13 +92,14 @@ impl AppState {
     }
 
     /// Dumps a particular private key. Use carefully!
-    pub fn get_secret_key(&self, name: &str, pwd: Option<String>) -> Option<Ed25519SK> {
+    pub fn get_secret_key(&self, name: &str, pwd: Option<String>) -> Result<Option<Ed25519SK>, melwalletd_prot::error::InvalidPassword> {
         let enc = self.secrets.load(name)?;
         match enc {
-            PersistentSecret::Plaintext(sk) => Some(sk),
+            PersistentSecret::Plaintext(sk) => Ok(Some(sk)),
             PersistentSecret::PasswordEncrypted(enc) => {
-                let decrypted = enc.decrypt(&pwd?)?;
-                Some(decrypted)
+                let maybe_decrypted = enc.decrypt(&pwd?);
+                
+                Ok(Some(decrypted))
             }
         }
     }

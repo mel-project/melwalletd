@@ -2,20 +2,20 @@ mod cli;
 mod database;
 mod protocol;
 mod secrets;
-mod signer;
 mod state;
-mod walletdata;
 use std::convert::TryFrom;
 
 use std::{ffi::CString, sync::Arc};
 
 use anyhow::Context;
 
-use protocol::protocol::{MelwalletdRpcImpl, MelwalletdService};
+use database::Wallet;
+use melwalletd_prot::protocol::MelwalletdService;
+use protocol::{MelwalletdRpcImpl};
 use state::AppState;
 use tap::Tap;
 
-use clap::Parser;
+use clap::{Parser, App};
 use tide::Server;
 
 use crate::cli::*;
@@ -78,15 +78,16 @@ fn main() -> anyhow::Result<()> {
 
         // Prepare to create server
         let state = Arc::new(AppState::new(db, network, secrets, addr, client));
-        let rpc = MelwalletdRpcImpl { state };
         let config = Arc::new(config);
-
-      
+        type WalletType = MelwalletdRpcImpl<Wallet, AppState>;
+        
         let legacy_server = match config.legacy_listen {
             Some(sock) => {
-                let app: Server<Arc<MelwalletdRpcImpl>> =
-                    crate::protocol::legacy::init_server(config.clone(), rpc.clone()).await?;
-                let legacy_endpoints = crate::protocol::legacy::legacy_server(app).await?;
+                let rpc: WalletType = MelwalletdRpcImpl::new(state.clone());
+
+                let app =
+                    crate::protocol::legacy::init_server(config.clone(), rpc).await?;
+                let legacy_endpoints = crate::protocol::legacy::legacy_server(app)?;
                 let server = legacy_endpoints.listen(sock);
                 log::info!("Starting legacy server at {}", sock);
                 Some(smolscale::spawn(server))
@@ -95,11 +96,14 @@ fn main() -> anyhow::Result<()> {
         };
     
         {
-            let app: Server<Arc<MelwalletdRpcImpl>> =
-                crate::protocol::legacy::init_server(config.clone(), rpc.clone()).await?;
-            let service = MelwalletdService(rpc.clone());
+            let rpc: WalletType = MelwalletdRpcImpl::new(state.clone());
+            let service = MelwalletdService(rpc);
+
+            let app =
+                crate::protocol::legacy::init_server(config.clone(), service).await?;
+            
             let sock = config.listen.clone();
-            let legacy = crate::protocol::legacy::rpc_server(app, service).await?;
+            let legacy = crate::protocol::legacy::rpc_server(app).await?;
             log::info!("Starting rpc server at {}", config.listen);
             legacy.listen(sock).await?
         };

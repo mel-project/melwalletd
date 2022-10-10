@@ -1,15 +1,14 @@
 use std::{
     collections::{BTreeMap, HashSet},
-    future::Future,
     path::Path,
-    time::Instant,
+    time::Instant, sync::Arc,
 };
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
+use async_trait::async_trait;
 use binary_search::Direction;
-use melnet::MelnetError;
+use melwalletd_prot::types::Melwallet;
 use rusqlite::{params, OptionalExtension};
-use serde::{Serialize, Deserialize};
 use stdcode::StdcodeSerializeExt;
 use themelio_nodeprot::ValClientSnapshot;
 use themelio_stf::melvm::{covenant_weight_from_bytes, Covenant};
@@ -17,31 +16,11 @@ use themelio_structs::{
     Address, BlockHeight, CoinData, CoinDataHeight, CoinID, CoinValue, Denom, Transaction, TxHash,
     TxKind,
 };
-use thiserror::Error;
 
 use self::pool::ConnPool;
 
 mod pool;
 
-#[derive(Debug, Error, Serialize, Deserialize)]
-pub enum DatabaseError {
-    #[error("{0}")]
-    SQLError(String),
-    #[error("{0}")]
-    ClientError(String),
-}
-
-impl From<rusqlite::Error> for DatabaseError{
-    fn from(e: rusqlite::Error) -> Self {
-        Self::SQLError(e.to_string())
-    }
-}
-
-impl From<MelnetError> for DatabaseError{
-    fn from(e: MelnetError) -> Self {
-        Self::ClientError(e.to_string())
-    }
-}
 
 /// A database that holds wallets.
 #[derive(Clone)]
@@ -171,18 +150,19 @@ pub struct Wallet {
     pool: ConnPool,
 }
 
-impl Wallet {
+#[async_trait]
+impl Melwallet for Wallet {
     /// Covenant hash
-    pub fn address(&self) -> Address {
+     fn address(&self) -> Address {
         self.covhash
     }
 
     /// Obtains a transaction, whether cached or not. Must provide a snapshot to retrieve non-cached transactions.
-    pub async fn get_transaction(
+     async fn get_transaction(
         &self,
         txhash: TxHash,
-        fut_snapshot: impl Future<Output = anyhow::Result<ValClientSnapshot>>,
-    ) -> Result<Option<Transaction>, DatabaseError> {
+        snapshot: ValClientSnapshot,
+    ) -> Result<Option<Transaction>, melnet::MelnetError> {
         // if cached, get cached
         if let Some(tx) = self.get_cached_transaction(txhash).await {
             return Ok(Some(tx));
@@ -202,9 +182,7 @@ impl Wallet {
             }
         };
         // now great, we've found a relevant coin and where that coin was created. this gives us enough info to find the actual transaction.
-        let txn = if let Some(txn) = fut_snapshot
-            .await
-            .map_err(|e| MelnetError::Custom(e.to_string()))?
+        let txn = if let Some(txn) = snapshot
             .get_older(cdh.height)
             .await?
             .get_transaction(txhash)
@@ -219,12 +197,12 @@ impl Wallet {
         conn.execute(
             "insert into transactions values ($1, $2) on conflict do nothing",
             params![txhash.to_string(), txn.stdcode()],
-        )?;
+        ).map_err(|e| anyhow!(e));
         Ok(Some(txn))
     }
 
     /// Obtains a cached transaction.
-    pub async fn get_cached_transaction(&self, txhash: TxHash) -> Option<Transaction> {
+     async fn get_cached_transaction(&self, txhash: TxHash) -> Option<Transaction> {
         let conn = self.pool.get_conn().await;
         let blob: Vec<u8> = conn
             .query_row(
@@ -239,7 +217,7 @@ impl Wallet {
     }
 
     /// Check whether a particular txhash is pending.
-    pub async fn is_pending(&self, txhash: TxHash) -> bool {
+     async fn is_pending(&self, txhash: TxHash) -> bool {
         let conn = self.pool.get_conn().await;
         conn.query_row(
             "select txhash from pending where txhash = $1",
@@ -252,7 +230,7 @@ impl Wallet {
     }
 
     /// Gets the balance by denomination.
-    pub async fn get_balances(&self) -> BTreeMap<Denom, CoinValue> {
+     async fn get_balances(&self) -> BTreeMap<Denom, CoinValue> {
         let mut toret = BTreeMap::new();
         log::trace!("calling get_coin_mapping from get_balances");
         for (_, data) in self.get_coin_mapping(false, false).await {
@@ -262,7 +240,7 @@ impl Wallet {
     }
 
     /// Obtains transaction history.
-    pub async fn get_transaction_history(&self) -> Vec<(TxHash, Option<BlockHeight>)> {
+     async fn get_transaction_history(&self) -> Vec<(TxHash, Option<BlockHeight>)> {
         // We infer the transaction history through our coin confirmations
         let conn = self.pool.get_conn().await;
         let mut stmt = conn
@@ -293,7 +271,7 @@ impl Wallet {
     }
 
     /// Gets all the coins in the wallet, filtered by confirmation and spent status.
-    pub async fn get_coin_mapping(
+     async fn get_coin_mapping(
         &self,
         confirmed: bool,
         ignore_pending: bool,
@@ -355,12 +333,12 @@ impl Wallet {
 
     #[allow(clippy::too_many_arguments)]
     /// Prepares transactions
-    pub async fn prepare(
+     async fn prepare(
         &self,
         inputs: Vec<CoinID>,
         outputs: Vec<CoinData>,
         fee_multiplier: u128,
-        sign: impl Fn(Transaction) -> anyhow::Result<Transaction>,
+        sign: Arc<impl Fn(Transaction) -> anyhow::Result<Transaction> + Send + Sync>,
         nobalance: Vec<Denom>,
         fee_ballast: usize,
 
@@ -545,7 +523,7 @@ impl Wallet {
     }
 
     /// Sets transactions as sent
-    pub async fn commit_sent(&self, txn: Transaction, timeout: BlockHeight) -> anyhow::Result<()> {
+     async fn commit_sent(&self, txn: Transaction, timeout: BlockHeight) -> anyhow::Result<()> {
         let mut conn = self.pool.get_conn().await;
         let conn = conn.transaction()?;
         // // ensure that every input is available
@@ -612,7 +590,7 @@ impl Wallet {
     }
 
     /// Gets any coin.
-    pub async fn get_one_coin(&self, coin_id: CoinID) -> Option<CoinData> {
+     async fn get_one_coin(&self, coin_id: CoinID) -> Option<CoinData> {
         let conn = self.pool.get_conn().await;
         let result: (String, String, Vec<u8>, Vec<u8>) = conn
             .query_row(
@@ -632,7 +610,7 @@ impl Wallet {
     }
 
     /// Gets the confirmation status of a coin.
-    pub async fn get_coin_confirmation(&self, coin_id: CoinID) -> Option<CoinDataHeight> {
+     async fn get_coin_confirmation(&self, coin_id: CoinID) -> Option<CoinDataHeight> {
         let coindata = self.get_one_coin(coin_id).await?;
         let conn = self.pool.get_conn().await;
         let height: u64 = conn
@@ -650,7 +628,7 @@ impl Wallet {
     }
 
     /// Updates the list of coins, given a network snapshot.
-    pub async fn network_sync(&self, snapshot: ValClientSnapshot) -> anyhow::Result<()> {
+     async fn network_sync(&self, snapshot: ValClientSnapshot) -> anyhow::Result<()> {
         // The basic idea is that we get the list of coins from the remote, then add them all to the wallet.
         // However, we also need to take care of "disappearing" coins. If we have a confirmed coin that is no longer in the latest set, it must have been spent somewhere along the way. If we don't already have the transactions that spends it in the "spends", we must find that transaction through a binary search between the block where that coin was confirmed and the current block --- otherwise we cannot mark that coin as spent.
 

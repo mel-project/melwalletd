@@ -1,10 +1,8 @@
 pub mod legacy;
 
-
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
-
 
 use melwalletd_prot::error::ProtocolError::Endo;
 
@@ -14,45 +12,39 @@ use melwalletd_prot::error::{
 };
 use melwalletd_prot::signer::Signer;
 
+use async_trait::async_trait;
+use base32::Alphabet;
 use melwalletd_prot::request_errors::{CreateWalletError, PrepareTxError};
 use melwalletd_prot::types::{
     Melwallet, MelwalletdHelpers, PoolInfo, PrepareTxArgs, TxBalance, WalletSummary,
 };
-use async_trait::async_trait;
-use base32::Alphabet;
-use melwalletd_prot::walletdata::{TransactionStatus, AnnCoinID};
+use melwalletd_prot::walletdata::{AnnCoinID, TransactionStatus};
 use themelio_structs::{
     BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, Transaction, TxHash, TxKind,
 };
 use themelio_structs::{Header, PoolKey, PoolState};
 use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 
-
 use melwalletd_prot::protocol::MelwalletdProtocol;
 
-
-
-
-
-
-
 #[derive(Clone)]
-pub struct MelwalletdRpcImpl<T: Melwallet, State: MelwalletdHelpers<T>> {
+pub struct MelwalletdRpcImpl<State: MelwalletdHelpers> {
     pub state: Arc<State>,
-    _phantom: PhantomData<T>,
 }
 
-unsafe impl <T: Melwallet, State: MelwalletdHelpers<T>> Send for MelwalletdRpcImpl<T, State>{}
-unsafe impl <T: Melwallet, State: MelwalletdHelpers<T>> Sync for MelwalletdRpcImpl<T, State>{}
+unsafe impl<State: MelwalletdHelpers> Send for MelwalletdRpcImpl<State> {}
+unsafe impl<State: MelwalletdHelpers> Sync for MelwalletdRpcImpl<State> {}
 
-impl <T: Melwallet + Send + Sync, State: MelwalletdHelpers<T> + Send + Sync> MelwalletdRpcImpl<T, State> {
-    pub fn new (state: Arc<State>) -> Self{
-        MelwalletdRpcImpl { state, _phantom: PhantomData}
+impl<State: MelwalletdHelpers + Send + Sync> MelwalletdRpcImpl<State> {
+    pub fn new(state: Arc<State>) -> Self {
+        MelwalletdRpcImpl {
+            state,
+        }
     }
 }
 #[async_trait]
-impl<T: Melwallet + Send + Sync, State: MelwalletdHelpers<T> + Send + Sync> MelwalletdProtocol
-    for MelwalletdRpcImpl<T, State>
+impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol
+    for MelwalletdRpcImpl<State>
 {
     async fn summarize_wallet(
         &self,
@@ -274,32 +266,34 @@ impl<T: Melwallet + Send + Sync, State: MelwalletdHelpers<T> + Send + Sync> Melw
         let client = state.client().clone();
         let snapshot = client.snapshot().await.map_err(to_exo)?;
         let fee_multiplier = snapshot.current_header().fee_multiplier;
-        let kind = request.kind;
-        let data = match request.data.as_ref() {
-            Some(v) => hex::decode(v).ok(),
-            None => None,
-        };
 
-        let sign = 
-            |mut tx: Transaction| {
+        let sign = {
+            let covenants = request.covenants.clone();
+            let kind = request.kind.clone();
+            let data = match request.data.as_ref() {
+                Some(v) => hex::decode(v).ok(),
+                None => None,
+            };
+            move |mut tx: Transaction| {
                 if let Some(kind) = kind {
                     tx.kind = kind
                 }
                 if let Some(data) = data.clone() {
                     tx.data = data
                 }
-                tx.covenants.extend_from_slice(&request.covenants);
+                tx.covenants.extend_from_slice(&covenants);
                 for i in 0..tx.inputs.len() {
                     tx = signing_key.sign_tx(tx, i)?;
                 }
                 Ok(tx)
-            };
+            }
+        };
         let prepared_tx = wallet
             .prepare(
                 request.inputs.clone(),
                 request.outputs.clone(),
                 fee_multiplier,
-                Arc::new(sign),
+                Arc::new(Box::new(sign)),
                 request.nobalance.clone(),
                 request.fee_ballast,
                 state.client().snapshot().await.map_err(to_exo)?,
@@ -493,7 +487,6 @@ impl<T: Melwallet + Send + Sync, State: MelwalletdHelpers<T> + Send + Sync> Melw
     }
 }
 
-
 // impl MelwalletdRpcImpl {
 //     pub fn legacy_handler(&self, endpoint: Endpoint) -> impl Fn(&'_ Request<Arc<AppState>>) -> BoxFuture<'_,Result<Body, http_types::Error>>{
 //         move |req: &'_ Request<Arc<AppState>>| {
@@ -524,8 +517,6 @@ impl<T: Melwallet + Send + Sync, State: MelwalletdHelpers<T> + Send + Sync> Melw
 //             }
 //         };
 //         todo!();
-
-        
 
 //     }
 // }

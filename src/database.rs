@@ -338,7 +338,7 @@ impl Melwallet for Wallet {
         inputs: Vec<CoinID>,
         outputs: Vec<CoinData>,
         fee_multiplier: u128,
-        sign: Arc<impl Fn(Transaction) -> anyhow::Result<Transaction> + Send + Sync>,
+        sign: Arc<Box<dyn Fn(Transaction) -> anyhow::Result<Transaction> + Send + Sync>>,
         nobalance: Vec<Denom>,
         fee_ballast: usize,
 

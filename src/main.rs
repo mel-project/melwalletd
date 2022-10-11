@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
         // Prepare to create server
         let state = Arc::new(AppState::new(db, network, secrets, addr, client));
         let config = Arc::new(config);
-        type WalletType = MelwalletdRpcImpl<Wallet, AppState>;
+        type WalletType = MelwalletdRpcImpl<AppState>;
         
         let task = match config.legacy_listen {
             Some(sock) => {

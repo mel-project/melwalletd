@@ -10,18 +10,17 @@ use std::{ffi::CString, sync::Arc};
 use anyhow::Context;
 
 use melwalletd_prot::protocol::MelwalletdService;
-use protocol::{MelwalletdRpcImpl};
+use protocol::MelwalletdRpcImpl;
 use state::AppState;
 use tap::Tap;
 
-use clap::{Parser};
+use clap::Parser;
 
 use crate::cli::*;
 // use crate::protocol::legacy::melwalletd_http_server;
 use crate::{database::Database, secrets::SecretStore};
 use themelio_nodeprot::ValClient;
 use themelio_structs::NetID;
-
 
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
@@ -78,28 +77,26 @@ fn main() -> anyhow::Result<()> {
         let state = Arc::new(AppState::new(db, network, secrets, addr, client));
         let config = Arc::new(config);
         type WalletType = MelwalletdRpcImpl<AppState>;
-        
+
         let _task = match config.legacy_listen {
             Some(sock) => {
                 let rpc: WalletType = MelwalletdRpcImpl::new(state.clone());
 
-                let app =
-                    crate::protocol::legacy::init_server(config.clone(), rpc).await?;
+                let app = crate::protocol::legacy::init_server(config.clone(), rpc).await?;
                 let legacy_endpoints = crate::protocol::legacy::legacy_server(app)?;
                 let server = legacy_endpoints.listen(sock);
                 log::info!("Starting legacy server at {}", sock);
                 Some(smolscale::spawn(server))
             }
-            _ => None
+            _ => None,
         };
-    
+
         {
             let rpc: WalletType = MelwalletdRpcImpl::new(state.clone());
             let service = MelwalletdService(rpc);
 
-            let app =
-                crate::protocol::legacy::init_server(config.clone(), service).await?;
-            
+            let app = crate::protocol::legacy::init_server(config.clone(), service).await?;
+
             let sock = config.listen;
             let legacy = crate::protocol::legacy::rpc_server(app).await?;
             log::info!("Starting rpc server at {}", config.listen);

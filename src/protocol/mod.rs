@@ -36,15 +36,11 @@ unsafe impl<State: MelwalletdHelpers> Sync for MelwalletdRpcImpl<State> {}
 
 impl<State: MelwalletdHelpers + Send + Sync> MelwalletdRpcImpl<State> {
     pub fn new(state: Arc<State>) -> Self {
-        MelwalletdRpcImpl {
-            state,
-        }
+        MelwalletdRpcImpl { state }
     }
 }
 #[async_trait]
-impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol
-    for MelwalletdRpcImpl<State>
-{
+impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRpcImpl<State> {
     async fn summarize_wallet(
         &self,
         wallet_name: String,
@@ -349,10 +345,14 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol
         let raw = wallet
             .get_transaction(txhash.into(), snapshot)
             .await
-            .transpose()
-            .ok_or_else(|| TransactionError::NotFound(txhash.into()))
-            .map_err(|e| Endo(e.into()))?
+            .map_err(|e| match e {
+                melwalletd_prot::types::DatabaseError::NetworkError(e) => e,
+                _ => unreachable!("Database Error"),
+            })
             .map_err(to_exo)?;
+        let raw = raw
+            .ok_or_else(|| TransactionError::NotFound(txhash.into()))
+            .map_err(|e| Endo(e.into()))?;
 
         // Is this self-originated? We check the covenants
         let self_originated = raw.covenants.iter().any(|c| c.hash() == wallet.address().0);

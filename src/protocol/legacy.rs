@@ -68,7 +68,7 @@ fn to_badreq<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -> ti
 //     req
 // }
 struct LegacyHelpers<State: MelwalletdHelpers + Send + Sync> {
-    _phantom: PhantomData<State>
+    _phantom: PhantomData<State>,
 }
 
 impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
@@ -80,16 +80,12 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
         let wallet_summary = state.summarize_wallet(wallet_name.to_owned()).await?;
         Body::from_json(&wallet_summary)
     }
-    
-    pub async fn get_summary(
-        req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn get_summary(req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         Body::from_json(&req.state().get_summary().await?)
     }
-    
-    pub async fn get_pool(
-        req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn get_pool(req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         let pool_key: PoolKey = req
             .param("pair")?
             .replace(':', "/")
@@ -100,10 +96,8 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
             .ok_or_else(|| to_badreq(anyhow!("bad pool key")))?;
         Body::from_json(&req.state().get_pool(pool_key).await?)
     }
-    
-    pub async fn get_pool_info(
-        req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn get_pool_info(req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         #[derive(Deserialize)]
         struct Req {
             from: String,
@@ -116,13 +110,11 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
         let to = Denom::from_bytes(&hex::decode(&query.to)?).context("oh no")?;
         Body::from_json(&req.state().simulate_pool_swap(to, from, value).await?)
     }
-    
-    pub async fn list_wallets(
-        req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn list_wallets(req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         Body::from_json(&req.state().state.list_wallets().await)
     }
-    
+
     pub async fn create_wallet(
         mut req: Request<Arc<MelwalletdRpcImpl<State>>>,
     ) -> tide::Result<Body> {
@@ -131,10 +123,10 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
             password: Option<String>,
             secret: Option<String>,
         }
-    
+
         let body = &req.body_string().await?;
         let query: Query = serde_json::from_str(body)?;
-    
+
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         Body::from_json(
             &req.state()
@@ -142,16 +134,14 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
                 .await?,
         )
     }
-    
-    pub async fn dump_coins(
-        req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn dump_coins(req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let rpc = req.state();
         let coins = rpc.dump_coins(wallet_name).await?;
         Body::from_json(&coins)
     }
-    
+
     pub async fn dump_transactions(
         req: Request<Arc<MelwalletdRpcImpl<State>>>,
     ) -> tide::Result<Body> {
@@ -160,16 +150,14 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
         let tx_info = rpc.dump_transactions(wallet_name).await?;
         Body::from_json(&tx_info)
     }
-    
-    pub async fn lock_wallet(
-        req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn lock_wallet(req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let rpc = req.state();
         rpc.lock_wallet(wallet_name).await;
         Ok("".into())
     }
-    
+
     pub async fn unlock_wallet(
         mut req: Request<Arc<MelwalletdRpcImpl<State>>>,
     ) -> tide::Result<Body> {
@@ -184,7 +172,7 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
         rpc.unlock_wallet(wallet_name, request.password).await?;
         Ok("".into())
     }
-    
+
     pub async fn export_sk_from_wallet(
         mut req: Request<Arc<MelwalletdRpcImpl<State>>>,
     ) -> tide::Result<Body> {
@@ -195,18 +183,16 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let request: Req = req.body_json().await?;
         let rpc = req.state();
-    
+
         // attempt to unlock
         let sk = rpc
             .export_sk_from_wallet(wallet_name, request.password)
             .await?;
-    
+
         Body::from_json(&sk)
     }
 
-    pub async fn prepare_tx(
-        mut req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+    pub async fn prepare_tx(mut req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let request: PrepareTxArgs = req.body_json().await?;
         // calculate fees
@@ -214,59 +200,47 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
         let tx = rpc.prepare_tx(wallet_name, request).await?;
         Body::from_json(&tx)
     }
-    
-    pub async fn send_tx(
-        mut req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn send_tx(mut req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let tx: Transaction = req.body_json().await?;
         let rpc = req.state();
         let tx_hash = rpc.send_tx(wallet_name, tx).await?;
         Body::from_json(&tx_hash)
     }
-    
+
     // pub async fn force_revert_tx<T:Melwallet + Send + Sync,State>(mut req: Request<Arc<MelwalletdRpcImpl<State>>>) ->tide::Result<Body> {
     //     todo!()
     // }
-    
-    pub async fn get_tx_balance(
-        req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn get_tx_balance(req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
-    
+
         let rpc = req.state();
         let tx_balance = rpc.get_tx_balance(wallet_name, txhash).await?;
         Body::from_json(&tx_balance)
     }
-    
-    pub async fn get_tx(
-        req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn get_tx(req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let txhash: HashVal = req.param("txhash")?.parse().map_err(to_badreq)?;
         let rpc = req.state();
         let tx = rpc.get_tx(wallet_name, txhash).await?;
         Body::from_json(&tx)
     }
-    
-    pub async fn send_faucet(
-        req: Request<Arc<MelwalletdRpcImpl<State>>>,
-    ) -> tide::Result<Body> {
+
+    pub async fn send_faucet(req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let rpc = req.state();
         let txhash = rpc.send_faucet(wallet_name).await?;
         Body::from_json(&txhash)
     }
-
 }
-
 
 // pub async fn prepare_stake_tx<T:Melwallet + Send + Sync,State>(mut req: Request<Arc<MelwalletdRpcImpl<State>>>) ->tide::Result<Body> {
 //     todo!()
 // }
-
-
 
 pub async fn init_server<T: Send + Sync + 'static>(
     config: Arc<Config>,
@@ -295,7 +269,6 @@ pub async fn init_server<T: Send + Sync + 'static>(
     Ok(app)
 }
 
-
 pub fn legacy_server<State: MelwalletdHelpers + Send + Sync + 'static>(
     mut app: Server<Arc<MelwalletdRpcImpl<State>>>,
 ) -> anyhow::Result<Server<Arc<MelwalletdRpcImpl<State>>>> {
@@ -303,18 +276,27 @@ pub fn legacy_server<State: MelwalletdHelpers + Send + Sync + 'static>(
     app.at("/pools/:pair").get(LegacyHelpers::get_pool);
     app.at("/pool_info").post(LegacyHelpers::get_pool_info);
     app.at("/wallets").get(LegacyHelpers::list_wallets);
-    app.at("/wallets/:name").get(LegacyHelpers::summarize_wallet);
+    app.at("/wallets/:name")
+        .get(LegacyHelpers::summarize_wallet);
     app.at("/wallets/:name").put(LegacyHelpers::create_wallet);
-    app.at("/wallets/:name/lock").post(LegacyHelpers::lock_wallet);
-    app.at("/wallets/:name/unlock").post(LegacyHelpers::unlock_wallet);
+    app.at("/wallets/:name/lock")
+        .post(LegacyHelpers::lock_wallet);
+    app.at("/wallets/:name/unlock")
+        .post(LegacyHelpers::unlock_wallet);
     app.at("/wallets/:name/export-sk")
         .post(LegacyHelpers::export_sk_from_wallet);
-    app.at("/wallets/:name/coins").get(LegacyHelpers::dump_coins);
-    app.at("/wallets/:name/prepare-tx").post(LegacyHelpers::prepare_tx);
-    app.at("/wallets/:name/send-tx").post(LegacyHelpers::send_tx);
-    app.at("/wallets/:name/send-faucet").post(LegacyHelpers::send_faucet);
-    app.at("/wallets/:name/transactions").get(LegacyHelpers::dump_transactions);
-    app.at("/wallets/:name/transactions/:txhash").get(LegacyHelpers::get_tx);
+    app.at("/wallets/:name/coins")
+        .get(LegacyHelpers::dump_coins);
+    app.at("/wallets/:name/prepare-tx")
+        .post(LegacyHelpers::prepare_tx);
+    app.at("/wallets/:name/send-tx")
+        .post(LegacyHelpers::send_tx);
+    app.at("/wallets/:name/send-faucet")
+        .post(LegacyHelpers::send_faucet);
+    app.at("/wallets/:name/transactions")
+        .get(LegacyHelpers::dump_transactions);
+    app.at("/wallets/:name/transactions/:txhash")
+        .get(LegacyHelpers::get_tx);
     app.at("/wallets/:name/transactions/:txhash/balance")
         .get(LegacyHelpers::get_tx_balance);
     Ok(app)

@@ -1,7 +1,6 @@
 pub mod legacy;
 
 use std::collections::BTreeMap;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 use melwalletd_prot::error::ProtocolError::Endo;
@@ -16,7 +15,7 @@ use async_trait::async_trait;
 use base32::Alphabet;
 use melwalletd_prot::request_errors::{CreateWalletError, PrepareTxError};
 use melwalletd_prot::types::{
-    Melwallet, MelwalletdHelpers, PoolInfo, PrepareTxArgs, TxBalance, WalletSummary,
+    MelwalletdHelpers, PoolInfo, PrepareTxArgs, TxBalance, WalletSummary,
 };
 use melwalletd_prot::walletdata::{AnnCoinID, TransactionStatus};
 use themelio_structs::{
@@ -269,7 +268,7 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol
 
         let sign = {
             let covenants = request.covenants.clone();
-            let kind = request.kind.clone();
+            let kind = request.kind;
             let data = match request.data.as_ref() {
                 Some(v) => hex::decode(v).ok(),
                 None => None,

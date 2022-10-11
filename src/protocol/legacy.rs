@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use http_types::headers::HeaderValue;
 use melwalletd_prot::protocol::MelwalletdProtocol;
-use melwalletd_prot::types::Melwallet;
 use melwalletd_prot::types::MelwalletdHelpers;
 use melwalletd_prot::types::PrepareTxArgs;
 use tide::{security::CorsMiddleware, Request, Server};

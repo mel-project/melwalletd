@@ -9,7 +9,6 @@ use std::{ffi::CString, sync::Arc};
 
 use anyhow::Context;
 
-use database::Wallet;
 use melwalletd_prot::protocol::MelwalletdService;
 use protocol::{MelwalletdRpcImpl};
 use state::AppState;
@@ -80,7 +79,7 @@ fn main() -> anyhow::Result<()> {
         let config = Arc::new(config);
         type WalletType = MelwalletdRpcImpl<AppState>;
         
-        let task = match config.legacy_listen {
+        let _task = match config.legacy_listen {
             Some(sock) => {
                 let rpc: WalletType = MelwalletdRpcImpl::new(state.clone());
 

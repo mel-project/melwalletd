@@ -15,8 +15,7 @@ use protocol::{MelwalletdRpcImpl};
 use state::AppState;
 use tap::Tap;
 
-use clap::{Parser, App};
-use tide::Server;
+use clap::{Parser};
 
 use crate::cli::*;
 // use crate::protocol::legacy::melwalletd_http_server;
@@ -81,7 +80,7 @@ fn main() -> anyhow::Result<()> {
         let config = Arc::new(config);
         type WalletType = MelwalletdRpcImpl<Wallet, AppState>;
         
-        let legacy_server = match config.legacy_listen {
+        let task = match config.legacy_listen {
             Some(sock) => {
                 let rpc: WalletType = MelwalletdRpcImpl::new(state.clone());
 
@@ -102,7 +101,7 @@ fn main() -> anyhow::Result<()> {
             let app =
                 crate::protocol::legacy::init_server(config.clone(), service).await?;
             
-            let sock = config.listen.clone();
+            let sock = config.listen;
             let legacy = crate::protocol::legacy::rpc_server(app).await?;
             log::info!("Starting rpc server at {}", config.listen);
             legacy.listen(sock).await?

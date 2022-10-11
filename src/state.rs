@@ -1,20 +1,17 @@
 use std::{collections::BTreeMap, net::SocketAddr, sync::{Arc}, time::Duration};
 
 use crate::{
-    database::{Database, Wallet},
+    database::{Database},
     secrets::{EncryptedSK, PersistentSecret, SecretStore},
 };
 
 use async_trait::async_trait;
-use clap::App;
 use dashmap::DashMap;
-use futures::future::MaybeDone;
 use melwalletd_prot::{types::{MelwalletdHelpers, WalletSummary, Melwallet}, error::InvalidPassword, signer::Signer};
-use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
 use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
-use themelio_structs::{Address, CoinValue, Denom, NetID};
+use themelio_structs::{Denom, NetID};
 use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
@@ -125,9 +122,8 @@ impl <T: Melwallet> MelwalletdHelpers<T>  for AppState  {
         }
         
     }
-     async fn get_wallet(&self, name: &str) -> Option<T> {
-        // self.database.get_wallet(name).await
-        todo!()
+     async fn get_wallet(&self, name: &str) -> Option<Box<dyn Melwallet>> {
+        self.database.get_wallet(name).await
     }
     /// Locks a particular wallet.
      fn lock(&self, name: &str) {

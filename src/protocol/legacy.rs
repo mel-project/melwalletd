@@ -16,9 +16,8 @@ use std::fmt::Debug;
 use themelio_structs::{Denom, PoolKey, Transaction};
 use tmelcrypt::HashVal;
 
-use nanorpc::RpcService;
 
-use super::MelwalletdRpcImpl;
+use super::rpc::MelwalletdRpcImpl;
 
 fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
     let cors = origins
@@ -302,18 +301,3 @@ pub fn legacy_server<State: MelwalletdHelpers + Send + Sync + 'static>(
     Ok(app)
 }
 
-pub async fn rpc_server<T: RpcService + 'static>(
-    mut app: Server<Arc<T>>,
-) -> anyhow::Result<Server<Arc<T>>> {
-    app.at("").post(move |mut r: Request<Arc<T>>| {
-        let service = r.state().clone();
-        async move {
-            let request_body: nanorpc::JrpcRequest = r.body_json().await?;
-            let rpc_res = &service.respond_raw(request_body).await;
-            let http_res: Result<Body, http_types::Error> = Body::from_json(&rpc_res);
-            http_res
-        }
-    });
-
-    Ok(app)
-}

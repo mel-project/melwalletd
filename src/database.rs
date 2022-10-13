@@ -660,7 +660,8 @@ impl Melwallet for Wallet {
         let remote_coin_list = snapshot
             .get_raw()
             .get_some_coins(snapshot.current_header().height, self.covhash)
-            .await?
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?
             .context("get_some_coins returned nothing")?;
         if remote_coin_list.len() != remote_coin_count as usize {
             anyhow::bail!("remote coin list is bad")

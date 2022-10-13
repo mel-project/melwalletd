@@ -10,14 +10,14 @@ use std::{ffi::CString, sync::Arc};
 use anyhow::Context;
 
 use melwalletd_prot::protocol::MelwalletdService;
-use protocol::MelwalletdRpcImpl;
 use state::AppState;
 use tap::Tap;
 
 use clap::Parser;
 
 use crate::cli::*;
-// use crate::protocol::legacy::melwalletd_http_server;
+use crate::protocol::rpc::MelwalletdRpcImpl;
+
 use crate::{database::Database, secrets::SecretStore};
 use themelio_nodeprot::ValClient;
 use themelio_structs::NetID;
@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
 
-        let client = ValClient::new(network, addr);
+        let client = ValClient::connect(network, addr).await;
         if network == NetID::Mainnet || network == NetID::Testnet {
             client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
         } else {
@@ -98,7 +98,7 @@ fn main() -> anyhow::Result<()> {
             let app = crate::protocol::legacy::init_server(config.clone(), service).await?;
 
             let sock = config.listen;
-            let legacy = crate::protocol::legacy::rpc_server(app).await?;
+            let legacy = crate::protocol::rpc_server(app).await?;
             log::info!("Starting rpc server at {}", config.listen);
             legacy.listen(sock).await?
         };

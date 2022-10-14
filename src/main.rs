@@ -66,6 +66,10 @@ fn main() -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
 
         let client = ValClient::connect(network, addr).await;
+
+        log::info!("Connecting to Node rpc @ {addr}");
+
+
         if network == NetID::Mainnet || network == NetID::Testnet {
             client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
         } else {

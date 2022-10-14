@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use melwalletd_prot::error::ProtocolError::Endo;
 
 use melwalletd_prot::error::{
-    self, to_exo, to_network, InvalidPassword, NeedWallet, NetworkError, NeverError, PoolKeyError,
-    ProtocolError, StateError, TransactionError,
+    self, to_endo, to_network, to_network_exo, InvalidPassword, NeedWallet, NetworkError,
+    NeverError, PoolKeyError, ProtocolError, StateError, TransactionError,
 };
 use melwalletd_prot::signer::Signer;
 
@@ -59,7 +59,7 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRp
     async fn get_summary(&self) -> Result<Header, error::NetworkError> {
         let state = self.state.clone();
         let client = state.client().clone();
-        let snap = client.snapshot().await?;
+        let snap = client.snapshot().await.map_err(to_network)?;
         Ok(snap.current_header())
     }
 
@@ -74,14 +74,15 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRp
     ) -> Result<Option<PoolState>, StateError<PoolKeyError>> {
         let pool_key = pool_key
             .to_canonical()
-            .ok_or(error::PoolKeyError(pool_key))?;
+            .ok_or(error::PoolKeyError(pool_key))
+            .map_err(to_endo)?;
 
         let state = self.state.clone();
         let client = state.client().clone();
 
-        let snapshot = client.snapshot().await.map_err(to_exo)?;
+        let snapshot = client.snapshot().await?;
 
-        let pool = snapshot.get_pool(pool_key).await.map_err(to_exo)?;
+        let pool = snapshot.get_pool(pool_key).await?;
         Ok(pool)
     }
 
@@ -102,18 +103,13 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRp
         };
         let pool_key = pool_key
             .to_canonical()
-            .ok_or(error::PoolKeyError(pool_key))?;
+            .ok_or(error::PoolKeyError(pool_key))
+            .map_err(to_endo)?;
 
         let state = self.state.clone();
         let client = state.client().clone();
 
-        let maybe_pool_state = client
-            .snapshot()
-            .await
-            .map_err(to_exo)?
-            .get_pool(pool_key)
-            .await
-            .map_err(to_exo)?;
+        let maybe_pool_state = client.snapshot().await?.get_pool(pool_key).await?;
 
         if maybe_pool_state.is_none() {
             return Ok(None);
@@ -258,11 +254,12 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRp
         let wallet = state
             .get_wallet(&wallet_name)
             .await
-            .ok_or(NeedWallet::NotFound(wallet_name))?;
+            .ok_or(NeedWallet::NotFound(wallet_name))
+            .map_err(to_endo)?;
 
         // calculate fees
         let client = state.client().clone();
-        let snapshot = client.snapshot().await.map_err(to_exo)?;
+        let snapshot = client.snapshot().await?;
         let fee_multiplier = snapshot.current_header().fee_multiplier;
 
         let sign = {
@@ -294,7 +291,7 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRp
                 Arc::new(Box::new(sign)),
                 request.nobalance.clone(),
                 request.fee_ballast,
-                state.client().snapshot().await.map_err(to_exo)?,
+                state.client().snapshot().await?,
             )
             .await
             .map_err(|_| ProtocolError::BadRequest("".to_owned()))?;
@@ -311,16 +308,19 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRp
         let wallet = state
             .get_wallet(&wallet_name)
             .await
-            .ok_or(NeedWallet::NotFound(wallet_name))?;
-        let snapshot = state.client().snapshot().await.map_err(to_exo)?;
+            .ok_or(NeedWallet::NotFound(wallet_name))
+            .map_err(to_endo)?;
+        let snapshot = state.client().snapshot().await?;
 
         // we send it off ourselves
         snapshot
             .get_raw()
             .send_tx(tx.clone())
             .await
-            .map_err(to_network)
-            .map_err(to_exo)?;
+            .map_err(to_network_exo)?
+            .map_err(|e| TransactionError::SendFailed(e.to_string()))
+            .map_err(to_network_exo)?;
+
         // we mark the TX as sent in this thread.
         wallet
             .commit_sent(
@@ -345,7 +345,7 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRp
             .ok_or(NeedWallet::NotFound(wallet_name))
             .map_err(Endo)?;
 
-        let snapshot = state.client().snapshot().await.map_err(to_exo)?;
+        let snapshot = state.client().snapshot().await?;
         let raw = wallet
             .get_transaction(txhash.into(), snapshot)
             .await
@@ -353,7 +353,8 @@ impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRp
                 melwalletd_prot::types::DatabaseError::NetworkError(e) => e,
                 _ => unreachable!("Database Error"),
             })
-            .map_err(to_exo)?;
+            .map_err(to_network_exo)?;
+
         let raw = raw
             .ok_or_else(|| TransactionError::NotFound(txhash.into()))
             .map_err(|e| Endo(e.into()))?;

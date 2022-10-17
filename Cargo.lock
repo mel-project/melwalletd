@@ -2096,14 +2096,15 @@ dependencies = [
 
 [[package]]
 name = "nanorpc"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d904d279939410568f9783079e78038442f9d0ada8d8f8dfc8a0d3da64d64f7e"
+checksum = "eace49b8eff53d392de9338d0b783c600f04fddefca00c24dfa9840f980fc1d4"
 dependencies = [
  "anyhow",
  "async-trait",
  "fastrand",
  "futures-lite",
+ "log",
  "nanorpc-derive",
  "serde",
  "serde_json",

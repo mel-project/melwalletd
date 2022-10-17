@@ -201,10 +201,13 @@ impl<State: MelwalletdHelpers + Send + Sync> LegacyHelpers<State> {
     }
 
     pub async fn send_tx(mut req: Request<Arc<MelwalletdRpcImpl<State>>>) -> tide::Result<Body> {
+
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let tx: Transaction = req.body_json().await?;
         let rpc = req.state();
+        log::info!("Attempting to send transaction");
         let tx_hash = rpc.send_tx(wallet_name, tx).await?;
+        log::info!("Sent to send transaction");
         Body::from_json(&tx_hash)
     }
 

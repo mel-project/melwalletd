@@ -69,7 +69,6 @@ fn main() -> anyhow::Result<()> {
 
         log::info!("Connecting to Node rpc @ {addr}");
 
-
         if network == NetID::Mainnet || network == NetID::Testnet {
             client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
         } else {

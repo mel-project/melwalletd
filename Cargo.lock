@@ -1879,7 +1879,7 @@ dependencies = [
  "tap",
  "terminal_size",
  "themelio-bootstrap 0.7.1",
- "themelio-nodeprot 0.12.0",
+ "themelio-nodeprot 0.12.1",
  "themelio-stf",
  "themelio-structs",
  "tide",
@@ -1931,7 +1931,7 @@ dependencies = [
  "tap",
  "terminal_size",
  "themelio-bootstrap 0.6.1",
- "themelio-nodeprot 0.12.0",
+ "themelio-nodeprot 0.12.1",
  "themelio-stf",
  "themelio-structs",
  "thiserror",
@@ -3301,7 +3301,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25b5ac296102dcc2ce7dae764b5ad14f5723f3be5a0d2e353629a9c739642507"
 dependencies = [
  "once_cell",
- "themelio-nodeprot 0.12.0",
+ "themelio-nodeprot 0.12.1",
  "themelio-structs",
 ]
 
@@ -3336,7 +3336,7 @@ dependencies = [
 
 [[package]]
 name = "themelio-nodeprot"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "anyhow",
  "arrayref",
@@ -3642,7 +3642,7 @@ version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
- "cfg-if 1.0.0",
+ "cfg-if 0.1.10",
  "static_assertions",
 ]
 

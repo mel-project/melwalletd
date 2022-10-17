@@ -65,10 +65,9 @@ fn main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
 
-        let client = ValClient::connect(network, addr).await;
+        let client = ValClient::connect_melnet2_tcp(network, addr).await?;
 
         log::info!("Connecting to Node rpc @ {addr}");
-
 
         if network == NetID::Mainnet || network == NetID::Testnet {
             client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());

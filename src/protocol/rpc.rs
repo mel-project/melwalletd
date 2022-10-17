@@ -10,13 +10,12 @@ use melwalletd_prot::error::ProtocolError::Endo;
 
 use melwalletd_prot::error::{
     self, to_endo, to_network, to_network_exo, InvalidPassword, NeedWallet, NetworkError,
-    NeverError, PoolKeyError, ProtocolError, StateError, TransactionError,
+    NeverError, PoolKeyError, ProtocolError, StateError, TransactionError, CreateWalletError, PrepareTxError,
 };
 use melwalletd_prot::signer::Signer;
 
 use async_trait::async_trait;
 use base32::Alphabet;
-use melwalletd_prot::request_errors::{CreateWalletError, PrepareTxError};
 use melwalletd_prot::types::{
     MelwalletdHelpers, PoolInfo, PrepareTxArgs, TxBalance, WalletSummary,
 };

@@ -23,7 +23,7 @@ version = "1.0.82"
 features = ["arbitrary_precision"]
 
 [patch.crates-io]
-themelio-nodeprot={path="../themelio-nodeprot"}
+# themelio-nodeprot={path="../themelio-nodeprot"}
 
 [dependencies]
 acidjson = "0.1.2"
@@ -56,7 +56,7 @@ smol-timeout = "0.6.0"
 smolscale= "0.3.29"
 tap = "1.0.1"
 themelio-bootstrap = "0.7.1"
-themelio-nodeprot = "0.12.0"
+themelio-nodeprot = "0.12.1"
 # melnet = "0.2.27"
 
 themelio-stf = "0.11.2"

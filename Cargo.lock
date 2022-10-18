@@ -2096,9 +2096,9 @@ dependencies = [
 
 [[package]]
 name = "nanorpc"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eace49b8eff53d392de9338d0b783c600f04fddefca00c24dfa9840f980fc1d4"
+checksum = "cadb798d33bf93c8bccc2caaac9cb2adb9a7cf93a92dc897979233f2662cbfe1"
 dependencies = [
  "anyhow",
  "async-trait",

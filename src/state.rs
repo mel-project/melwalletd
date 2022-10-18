@@ -5,12 +5,11 @@ use crate::{
     secrets::{EncryptedSK, PersistentSecret, SecretStore},
 };
 
-use async_trait::async_trait;
 use dashmap::DashMap;
 use melwalletd_prot::{
     error::InvalidPassword,
     signer::Signer,
-    types::{Melwallet, MelwalletdHelpers, WalletSummary},
+    types::{Melwallet, WalletSummary},
 };
 use smol_timeout::TimeoutExt;
 use themelio_nodeprot::ValClient;
@@ -50,19 +49,18 @@ impl AppState {
     }
 }
 ///themelio_bootstrap::checkpoint_height(network).unwrap()
-#[async_trait]
-impl MelwalletdHelpers for AppState {
-    fn client(&self) -> ValClient {
+impl AppState {
+    pub fn client(&self) -> ValClient {
         self._client.clone()
     }
 
-    fn get_network(&self) -> NetID {
+    pub fn get_network(&self) -> NetID {
         self.network
     }
     /// Creates a new appstate, given a network server `addr`.
 
     /// Returns a summary of wallets.
-    async fn list_wallets(&self) -> BTreeMap<String, WalletSummary> {
+    pub async fn list_wallets(&self) -> BTreeMap<String, WalletSummary> {
         let mlist = self.database.list_wallets().await;
         let mut toret = BTreeMap::new();
         for name in mlist.into_iter() {
@@ -85,13 +83,13 @@ impl MelwalletdHelpers for AppState {
     }
 
     /// Obtains the signer of a wallet. If the wallet is still locked, returns None.
-    fn get_signer(&self, name: &str) -> Option<Arc<dyn Signer>> {
+    pub fn get_signer(&self, name: &str) -> Option<Arc<dyn Signer>> {
         let res = self.unlocked_signers.get(name)?;
         Some(res.clone())
     }
 
     /// Unlocks a particular wallet. Returns None if unlocking failed.
-    fn unlock(&self, name: &str, pwd: Option<String>) -> Option<()> {
+    pub fn unlock(&self, name: &str, pwd: Option<String>) -> Option<()> {
         let enc = self.secrets.load(name)?;
         match enc {
             PersistentSecret::Plaintext(sec) => {
@@ -107,7 +105,7 @@ impl MelwalletdHelpers for AppState {
     }
 
     /// Dumps a particular private key. Use carefully!
-    fn get_secret_key(
+    pub fn get_secret_key(
         &self,
         name: &str,
         pwd: Option<String>,
@@ -127,16 +125,16 @@ impl MelwalletdHelpers for AppState {
             Ok(None)
         }
     }
-    async fn get_wallet(&self, name: &str) -> Option<Box<dyn Melwallet + Send + Sync>> {
+    pub async fn get_wallet(&self, name: &str) -> Option<Box<dyn Melwallet + Send + Sync>> {
         Some(Box::new(self.database.get_wallet(name).await?))
     }
     /// Locks a particular wallet.
-    fn lock(&self, name: &str) {
+    pub fn lock(&self, name: &str) {
         self.unlocked_signers.remove(name);
     }
 
     /// Creates a wallet with a given name.
-    async fn create_wallet(
+    pub async fn create_wallet(
         &self,
         name: &str,
         key: Ed25519SK,
@@ -157,7 +155,7 @@ impl MelwalletdHelpers for AppState {
 }
 
 // task that periodically pulls random coins to try to confirm
-async fn confirm_task(database: Database, client: ValClient) {
+pub async fn confirm_task(database: Database, client: ValClient) {
     let mut pacer = smol::Timer::interval(Duration::from_millis(15000));
     // let sent = Arc::new(Mutex::new(HashMap::new()));
     loop {

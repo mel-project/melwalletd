@@ -79,7 +79,7 @@ fn main() -> anyhow::Result<()> {
         // Prepare to create server
         let state = Arc::new(AppState::new(db, network, secrets, addr, client));
         let config = Arc::new(config);
-        type WalletType = MelwalletdRpcImpl<AppState>;
+        type WalletType = MelwalletdRpcImpl;
 
         let _task = match config.legacy_listen {
             Some(sock) => {
@@ -89,7 +89,18 @@ fn main() -> anyhow::Result<()> {
                 let legacy_endpoints = crate::protocol::legacy::legacy_server(app)?;
                 let server = legacy_endpoints.listen(sock);
                 log::info!("Starting legacy server at {}", sock);
-                Some(smolscale::spawn(server))
+                let task = smolscale::spawn(async move {
+                    let s = server.await;
+                    match s {
+                        Ok(_) => (),
+                        Err(e) => {
+                            log::error!("{}", e);
+                            panic!("{}", e)
+                        }
+                    };
+                    log::info!("Legacy server terminated");
+                });
+                Some(task)
             }
             _ => None,
         };
@@ -105,7 +116,6 @@ fn main() -> anyhow::Result<()> {
             log::info!("Starting rpc server at {}", config.listen);
             legacy.listen(sock).await?
         };
-
         Ok(())
     })
 }

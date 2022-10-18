@@ -9,16 +9,15 @@ use std::collections::BTreeMap;
 use melwalletd_prot::error::ProtocolError::Endo;
 
 use melwalletd_prot::error::{
-    self, to_endo, to_network, to_network_exo, InvalidPassword, NeedWallet, NetworkError,
-    NeverError, PoolKeyError, ProtocolError, StateError, TransactionError, CreateWalletError, PrepareTxError,
+    self, to_endo, to_network, to_network_exo, CreateWalletError, InvalidPassword, NeedWallet,
+    NetworkError, NeverError, PoolKeyError, PrepareTxError, ProtocolError, StateError,
+    TransactionError,
 };
 use melwalletd_prot::signer::Signer;
 
 use async_trait::async_trait;
 use base32::Alphabet;
-use melwalletd_prot::types::{
-    MelwalletdHelpers, PoolInfo, PrepareTxArgs, TxBalance, WalletSummary,
-};
+use melwalletd_prot::types::{PoolInfo, PrepareTxArgs, TxBalance, WalletSummary};
 use melwalletd_prot::walletdata::{AnnCoinID, TransactionStatus};
 use themelio_structs::{
     BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, Transaction, TxHash, TxKind,
@@ -28,21 +27,20 @@ use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 
 use melwalletd_prot::protocol::MelwalletdProtocol;
 
+use crate::state::AppState;
+
 #[derive(Clone)]
-pub struct MelwalletdRpcImpl<State: MelwalletdHelpers> {
-    pub state: Arc<State>,
+pub struct MelwalletdRpcImpl {
+    pub state: Arc<AppState>,
 }
 
-unsafe impl<State: MelwalletdHelpers> Send for MelwalletdRpcImpl<State> {}
-unsafe impl<State: MelwalletdHelpers> Sync for MelwalletdRpcImpl<State> {}
-
-impl<State: MelwalletdHelpers + Send + Sync> MelwalletdRpcImpl<State> {
-    pub fn new(state: Arc<State>) -> Self {
+impl MelwalletdRpcImpl {
+    pub fn new(state: Arc<AppState>) -> Self {
         MelwalletdRpcImpl { state }
     }
 }
 #[async_trait]
-impl<State: MelwalletdHelpers + Send + Sync> MelwalletdProtocol for MelwalletdRpcImpl<State> {
+impl MelwalletdProtocol for MelwalletdRpcImpl {
     async fn summarize_wallet(
         &self,
         wallet_name: String,

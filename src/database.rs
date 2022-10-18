@@ -658,6 +658,8 @@ impl Wallet {
             .get_some_coins(snapshot.current_header().height, self.covhash)
             .await?
             .context("get_some_coins returned nothing")?;
+
+        // This happens when TIP-906 isn't applied
         if remote_coin_list.len() != remote_coin_count as usize {
             anyhow::bail!("remote coin list is bad")
         }

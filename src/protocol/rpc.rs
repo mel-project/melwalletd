@@ -302,7 +302,6 @@ impl MelwalletdProtocol for MelwalletdRpcImpl {
         tx: Transaction,
     ) -> Result<TxHash, StateError<NeedWallet<NeverError>>> {
         let state = self.state.clone();
-        log::info!("wtf");
 
         let wallet = state
             .get_wallet(&wallet_name)
@@ -310,7 +309,6 @@ impl MelwalletdProtocol for MelwalletdRpcImpl {
             .ok_or(NeedWallet::NotFound(wallet_name))
             .map_err(to_endo)?;
         let snapshot = state.client().snapshot().await?;
-        log::info!("Got snapshot");
 
         // we send it off ourselves
         snapshot
@@ -321,7 +319,6 @@ impl MelwalletdProtocol for MelwalletdRpcImpl {
             .map_err(|e| TransactionError::SendFailed(e.to_string()))
             .map_err(to_network_exo)?;
 
-        log::info!("About to commit send");
 
         // we mark the TX as sent in this thread.
         wallet

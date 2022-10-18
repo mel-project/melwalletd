@@ -199,9 +199,7 @@ fn to_badreq<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -> ti
         let wallet_name = req.param("name").map(|v| v.to_string())?;
         let tx: Transaction = req.body_json().await?;
         let rpc = req.state();
-        log::info!("Attempting to send transaction");
         let tx_hash = rpc.send_tx(wallet_name, tx).await?;
-        log::info!("Sent to send transaction");
         Body::from_json(&tx_hash)
     }
 

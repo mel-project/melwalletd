@@ -114,7 +114,9 @@ fn main() -> anyhow::Result<()> {
             let sock = config.listen;
             let legacy = crate::protocol::rpc_server(app).await?;
             log::info!("Starting rpc server at {}", config.listen);
-            legacy.listen(sock).await?
+            legacy.listen(sock).await?;
+            log::info!("Closing rpc server");
+
         };
         Ok(())
     })

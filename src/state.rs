@@ -6,46 +6,57 @@ use crate::{
     signer::Signer,
 };
 
+use anyhow::Context;
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
+use melwalletd_prot::types::WalletSummary;
 use smol_timeout::TimeoutExt;
 use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
-use themelio_structs::{Address, CoinValue, Denom, NetID};
+use themelio_structs::{Denom, NetID};
 use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
+#[derive(Clone)]
 pub struct AppState {
-    pub database: Database,
+    pub database: Arc<Database>,
     pub network: NetID,
-    pub client: ValClient,
-    pub unlocked_signers: DashMap<String, Arc<dyn Signer>>,
-    pub secrets: SecretStore,
-    pub _confirm_task: smol::Task<()>,
+    pub _client: ValClient,
+    pub unlocked_signers: Arc<DashMap<String, Arc<dyn Signer>>>,
+    pub secrets: Arc<SecretStore>,
+    pub _confirm_task: Arc<smol::Task<()>>,
     // pub trusted_height: TrustedHeight,
 }
 
-///themelio_bootstrap::checkpoint_height(network).unwrap()
 impl AppState {
-    /// Creates a new appstate, given a network server `addr`.
     pub fn new(
         database: Database,
         network: NetID,
         secrets: SecretStore,
         _addr: SocketAddr,
-        client: ValClient,
+        _client: ValClient,
     ) -> Self {
-        let _confirm_task = smolscale::spawn(confirm_task(database.clone(), client.clone()));
+        let _confirm_task = smolscale::spawn(confirm_task(database.clone(), _client.clone()));
 
         Self {
-            database,
+            database: database.into(),
             network,
-            client,
+            _client,
             unlocked_signers: Default::default(),
-            secrets,
-            _confirm_task,
+            secrets: secrets.into(),
+            _confirm_task: _confirm_task.into(),
         }
     }
+}
+///themelio_bootstrap::checkpoint_height(network).unwrap()
+impl AppState {
+    pub fn client(&self) -> ValClient {
+        self._client.clone()
+    }
+
+    pub fn get_network(&self) -> NetID {
+        self.network
+    }
+    /// Creates a new appstate, given a network server `addr`.
 
     /// Returns a summary of wallets.
     pub async fn list_wallets(&self) -> BTreeMap<String, WalletSummary> {
@@ -77,14 +88,14 @@ impl AppState {
     }
 
     /// Unlocks a particular wallet. Returns None if unlocking failed.
-    pub fn unlock(&self, name: &str, pwd: Option<String>) -> Option<()> {
+    pub fn unlock(&self, name: &str, pwd: String) -> Option<()> {
         let enc = self.secrets.load(name)?;
         match enc {
             PersistentSecret::Plaintext(sec) => {
                 self.unlocked_signers.insert(name.to_owned(), Arc::new(sec));
             }
             PersistentSecret::PasswordEncrypted(enc) => {
-                let decrypted = enc.decrypt(&pwd?)?;
+                let decrypted = enc.decrypt(&pwd)?;
                 self.unlocked_signers
                     .insert(name.to_owned(), Arc::new(decrypted));
             }
@@ -93,58 +104,49 @@ impl AppState {
     }
 
     /// Dumps a particular private key. Use carefully!
-    pub fn get_secret_key(&self, name: &str, pwd: Option<String>) -> Option<Ed25519SK> {
-        let enc = self.secrets.load(name)?;
-        match enc {
-            PersistentSecret::Plaintext(sk) => Some(sk),
-            PersistentSecret::PasswordEncrypted(enc) => {
-                let decrypted = enc.decrypt(&pwd?)?;
-                Some(decrypted)
+    pub fn get_secret_key(&self, name: &str, pwd: &str) -> anyhow::Result<Option<Ed25519SK>> {
+        let maybe_enc = self.secrets.load(name);
+        if let Some(enc) = maybe_enc {
+            match enc {
+                PersistentSecret::Plaintext(sk) => Ok(Some(sk)),
+                PersistentSecret::PasswordEncrypted(enc) => {
+                    let decrypted = enc.decrypt(pwd).context("cannot decrypt")?;
+                    Ok(Some(decrypted))
+                }
             }
+        } else {
+            Ok(None)
         }
     }
     pub async fn get_wallet(&self, name: &str) -> Option<Wallet> {
         self.database.get_wallet(name).await
     }
+
     /// Locks a particular wallet.
     pub fn lock(&self, name: &str) {
         self.unlocked_signers.remove(name);
     }
 
     /// Creates a wallet with a given name.
-    pub async fn create_wallet(
+    pub async fn create_wallet_inner(
         &self,
         name: &str,
         key: Ed25519SK,
-        pwd: Option<String>,
+        pwd: String,
     ) -> anyhow::Result<()> {
         let covenant = Covenant::std_ed25519_pk_new(key.to_public());
         self.database.create_wallet(name, covenant).await?;
         self.secrets.store(
             name.to_owned(),
-            match pwd {
-                Some(pwd) => PersistentSecret::PasswordEncrypted(EncryptedSK::new(key, &pwd)),
-                None => PersistentSecret::Plaintext(key),
-            },
+            PersistentSecret::PasswordEncrypted(EncryptedSK::new(key, &pwd)),
         );
         log::info!("created wallet with name {}", name);
         Ok(())
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WalletSummary {
-    pub total_micromel: CoinValue,
-    pub detailed_balance: BTreeMap<String, CoinValue>,
-    pub staked_microsym: CoinValue,
-    pub network: NetID,
-    #[serde(with = "stdcode::asstr")]
-    pub address: Address,
-    pub locked: bool,
-}
-
 // task that periodically pulls random coins to try to confirm
-async fn confirm_task(database: Database, client: ValClient) {
+pub async fn confirm_task(database: Database, client: ValClient) {
     let mut pacer = smol::Timer::interval(Duration::from_millis(15000));
     // let sent = Arc::new(Mutex::new(HashMap::new()));
     loop {

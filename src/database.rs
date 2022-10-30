@@ -1,12 +1,14 @@
 use std::{
     collections::{BTreeMap, HashSet},
-    future::Future,
     path::Path,
+    sync::Arc,
     time::Instant,
 };
 
 use anyhow::Context;
+
 use binary_search::Direction;
+
 use rusqlite::{params, OptionalExtension};
 use stdcode::StdcodeSerializeExt;
 use themelio_nodeprot::ValClientSnapshot;
@@ -158,7 +160,7 @@ impl Wallet {
     pub async fn get_transaction(
         &self,
         txhash: TxHash,
-        fut_snapshot: impl Future<Output = anyhow::Result<ValClientSnapshot>>,
+        snapshot: ValClientSnapshot,
     ) -> anyhow::Result<Option<Transaction>> {
         // if cached, get cached
         if let Some(tx) = self.get_cached_transaction(txhash).await {
@@ -179,8 +181,7 @@ impl Wallet {
             }
         };
         // now great, we've found a relevant coin and where that coin was created. this gives us enough info to find the actual transaction.
-        let txn = if let Some(txn) = fut_snapshot
-            .await?
+        let txn = if let Some(txn) = snapshot
             .get_older(cdh.height)
             .await?
             .get_transaction(txhash)
@@ -329,13 +330,14 @@ impl Wallet {
         toret
     }
 
+    #[allow(clippy::too_many_arguments)]
     /// Prepares transactions
     pub async fn prepare(
         &self,
         inputs: Vec<CoinID>,
         outputs: Vec<CoinData>,
         fee_multiplier: u128,
-        sign: impl Fn(Transaction) -> anyhow::Result<Transaction>,
+        sign: Arc<Box<dyn Fn(Transaction) -> anyhow::Result<Transaction> + Send + Sync>>,
         nobalance: Vec<Denom>,
         fee_ballast: usize,
 
@@ -511,8 +513,8 @@ impl Wallet {
             _ => max_fee,
         };
         let (_, (_, val)) = binary_search::binary_search(
-            (0u128, Err(anyhow::anyhow!("nothing"))),
-            (max_fee.0, Err(anyhow::anyhow!("nothing"))),
+            (0u128, Err(anyhow::anyhow!("Not enough MEL in wallet "))),
+            (max_fee.0, Err(anyhow::anyhow!("Not enough MEL to pay fee"))),
             |a| gen_transaction(CoinValue(a)),
         );
         log::debug!("prepared TX with fee {:?}", val.as_ref().map(|v| v.fee));
@@ -523,20 +525,7 @@ impl Wallet {
     pub async fn commit_sent(&self, txn: Transaction, timeout: BlockHeight) -> anyhow::Result<()> {
         let mut conn = self.pool.get_conn().await;
         let conn = conn.transaction()?;
-        // // ensure that every input is available
-        // for input in txn.inputs.iter() {
-        //     if conn
-        //         .query_row(
-        //             "select height from coin_confirmations where coinid = $1",
-        //             params![input.to_string()],
-        //             |_| Ok(()),
-        //         )
-        //         .optional()?
-        //         .is_none()
-        //     {
-        //         anyhow::bail!("input {} no longer in wallet", input)
-        //     }
-        // }
+
         // add the transaction to the cache
         let txhash = txn.hash_nosigs();
         conn.execute(
@@ -656,7 +645,8 @@ impl Wallet {
         let remote_coin_list = snapshot
             .get_raw()
             .get_some_coins(snapshot.current_header().height, self.covhash)
-            .await?
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?
             .context("get_some_coins returned nothing")?;
         if remote_coin_list.len() != remote_coin_count as usize {
             anyhow::bail!("remote coin list is bad")

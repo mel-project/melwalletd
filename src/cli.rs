@@ -27,21 +27,19 @@ pub struct Args {
     pub network: NetID,
 
     #[clap(long, display_order(3))]
-    /// IP of full node on specified `network`; Required when not collecting to "mainnet" or "testnet"
+    /// Address of full node on specified `network`. Required when using networks other than "mainnet" and "testnet"
     pub connect: Option<SocketAddr>,
 
-    #[clap(long, default_value = "127.0.0.1:11773", display_order(4))]
-    /// IP to host melwalletd server
+    /// melwalletd server address
+    #[clap(long, short = 'l', default_value = "127.0.0.1:11773", display_order(4))]
     pub listen: SocketAddr,
 
-    #[clap(long, short, default_value = "*", display_order(998))]
     /// CORS origins allowed to access daemon
     pub allowed_origin: Vec<String>, // TODO: validate as urls
 
-
     #[serde(skip_serializing)]
     #[clap(long, display_order(998))]
-    /// 
+    ///
     pub config: Option<String>,
 
     #[serde(skip_serializing)]

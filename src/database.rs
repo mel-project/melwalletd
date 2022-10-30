@@ -5,10 +5,10 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Context};
-use async_trait::async_trait;
+use anyhow::Context;
+
 use binary_search::Direction;
-use melwalletd_prot::types::{DatabaseError, Melwallet};
+
 use rusqlite::{params, OptionalExtension};
 use stdcode::StdcodeSerializeExt;
 use themelio_nodeprot::ValClientSnapshot;
@@ -150,19 +150,18 @@ pub struct Wallet {
     pool: ConnPool,
 }
 
-#[async_trait]
-impl Melwallet for Wallet {
+impl Wallet {
     /// Covenant hash
-    fn address(&self) -> Address {
+    pub fn address(&self) -> Address {
         self.covhash
     }
 
     /// Obtains a transaction, whether cached or not. Must provide a snapshot to retrieve non-cached transactions.
-    async fn get_transaction(
+    pub async fn get_transaction(
         &self,
         txhash: TxHash,
         snapshot: ValClientSnapshot,
-    ) -> Result<Option<Transaction>, DatabaseError> {
+    ) -> anyhow::Result<Option<Transaction>> {
         // if cached, get cached
         if let Some(tx) = self.get_cached_transaction(txhash).await {
             return Ok(Some(tx));
@@ -197,13 +196,12 @@ impl Melwallet for Wallet {
         conn.execute(
             "insert into transactions values ($1, $2) on conflict do nothing",
             params![txhash.to_string(), txn.stdcode()],
-        )
-        .map_err(|e| DatabaseError::ExecutionError(e.to_string()))?;
+        )?;
         Ok(Some(txn))
     }
 
     /// Obtains a cached transaction.
-    async fn get_cached_transaction(&self, txhash: TxHash) -> Option<Transaction> {
+    pub async fn get_cached_transaction(&self, txhash: TxHash) -> Option<Transaction> {
         let conn = self.pool.get_conn().await;
         let blob: Vec<u8> = conn
             .query_row(
@@ -218,7 +216,7 @@ impl Melwallet for Wallet {
     }
 
     /// Check whether a particular txhash is pending.
-    async fn is_pending(&self, txhash: TxHash) -> bool {
+    pub async fn is_pending(&self, txhash: TxHash) -> bool {
         let conn = self.pool.get_conn().await;
         conn.query_row(
             "select txhash from pending where txhash = $1",
@@ -231,7 +229,7 @@ impl Melwallet for Wallet {
     }
 
     /// Gets the balance by denomination.
-    async fn get_balances(&self) -> BTreeMap<Denom, CoinValue> {
+    pub async fn get_balances(&self) -> BTreeMap<Denom, CoinValue> {
         let mut toret = BTreeMap::new();
         log::trace!("calling get_coin_mapping from get_balances");
         for (_, data) in self.get_coin_mapping(false, false).await {
@@ -241,7 +239,7 @@ impl Melwallet for Wallet {
     }
 
     /// Obtains transaction history.
-    async fn get_transaction_history(&self) -> Vec<(TxHash, Option<BlockHeight>)> {
+    pub async fn get_transaction_history(&self) -> Vec<(TxHash, Option<BlockHeight>)> {
         // We infer the transaction history through our coin confirmations
         let conn = self.pool.get_conn().await;
         let mut stmt = conn
@@ -272,7 +270,7 @@ impl Melwallet for Wallet {
     }
 
     /// Gets all the coins in the wallet, filtered by confirmation and spent status.
-    async fn get_coin_mapping(
+    pub async fn get_coin_mapping(
         &self,
         confirmed: bool,
         ignore_pending: bool,
@@ -334,7 +332,7 @@ impl Melwallet for Wallet {
 
     #[allow(clippy::too_many_arguments)]
     /// Prepares transactions
-    async fn prepare(
+    pub async fn prepare(
         &self,
         inputs: Vec<CoinID>,
         outputs: Vec<CoinData>,
@@ -524,23 +522,10 @@ impl Melwallet for Wallet {
     }
 
     /// Sets transactions as sent
-    async fn commit_sent(&self, txn: Transaction, timeout: BlockHeight) -> anyhow::Result<()> {
+    pub async fn commit_sent(&self, txn: Transaction, timeout: BlockHeight) -> anyhow::Result<()> {
         let mut conn = self.pool.get_conn().await;
         let conn = conn.transaction()?;
-        // // ensure that every input is available
-        // for input in txn.inputs.iter() {
-        //     if conn
-        //         .query_row(
-        //             "select height from coin_confirmations where coinid = $1",
-        //             params![input.to_string()],
-        //             |_| Ok(()),
-        //         )
-        //         .optional()?
-        //         .is_none()
-        //     {
-        //         anyhow::bail!("input {} no longer in wallet", input)
-        //     }
-        // }
+
         // add the transaction to the cache
         let txhash = txn.hash_nosigs();
         conn.execute(
@@ -591,7 +576,7 @@ impl Melwallet for Wallet {
     }
 
     /// Gets any coin.
-    async fn get_one_coin(&self, coin_id: CoinID) -> Option<CoinData> {
+    pub async fn get_one_coin(&self, coin_id: CoinID) -> Option<CoinData> {
         let conn = self.pool.get_conn().await;
         let result: (String, String, Vec<u8>, Vec<u8>) = conn
             .query_row(
@@ -611,7 +596,7 @@ impl Melwallet for Wallet {
     }
 
     /// Gets the confirmation status of a coin.
-    async fn get_coin_confirmation(&self, coin_id: CoinID) -> Option<CoinDataHeight> {
+    pub async fn get_coin_confirmation(&self, coin_id: CoinID) -> Option<CoinDataHeight> {
         let coindata = self.get_one_coin(coin_id).await?;
         let conn = self.pool.get_conn().await;
         let height: u64 = conn
@@ -629,7 +614,7 @@ impl Melwallet for Wallet {
     }
 
     /// Updates the list of coins, given a network snapshot.
-    async fn network_sync(&self, snapshot: ValClientSnapshot) -> anyhow::Result<()> {
+    pub async fn network_sync(&self, snapshot: ValClientSnapshot) -> anyhow::Result<()> {
         // The basic idea is that we get the list of coins from the remote, then add them all to the wallet.
         // However, we also need to take care of "disappearing" coins. If we have a confirmed coin that is no longer in the latest set, it must have been spent somewhere along the way. If we don't already have the transactions that spends it in the "spends", we must find that transaction through a binary search between the block where that coin was confirmed and the current block --- otherwise we cannot mark that coin as spent.
 

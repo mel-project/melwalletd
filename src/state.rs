@@ -1,16 +1,14 @@
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::{
-    database::Database,
+    database::{Database, Wallet},
     secrets::{EncryptedSK, PersistentSecret, SecretStore},
+    signer::Signer,
 };
 
+use anyhow::Context;
 use dashmap::DashMap;
-use melwalletd_prot::{
-    error::InvalidPassword,
-    signer::Signer,
-    types::{Melwallet, WalletSummary},
-};
+use melwalletd_prot::types::WalletSummary;
 use smol_timeout::TimeoutExt;
 use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
@@ -18,13 +16,14 @@ use themelio_structs::{Denom, NetID};
 use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
+#[derive(Clone)]
 pub struct AppState {
-    pub database: Database,
+    pub database: Arc<Database>,
     pub network: NetID,
     pub _client: ValClient,
-    pub unlocked_signers: DashMap<String, Arc<dyn Signer>>,
-    pub secrets: SecretStore,
-    pub _confirm_task: smol::Task<()>,
+    pub unlocked_signers: Arc<DashMap<String, Arc<dyn Signer>>>,
+    pub secrets: Arc<SecretStore>,
+    pub _confirm_task: Arc<smol::Task<()>>,
     // pub trusted_height: TrustedHeight,
 }
 
@@ -39,12 +38,12 @@ impl AppState {
         let _confirm_task = smolscale::spawn(confirm_task(database.clone(), _client.clone()));
 
         Self {
-            database,
+            database: database.into(),
             network,
             _client,
             unlocked_signers: Default::default(),
-            secrets,
-            _confirm_task,
+            secrets: secrets.into(),
+            _confirm_task: _confirm_task.into(),
         }
     }
 }
@@ -89,14 +88,14 @@ impl AppState {
     }
 
     /// Unlocks a particular wallet. Returns None if unlocking failed.
-    pub fn unlock(&self, name: &str, pwd: Option<String>) -> Option<()> {
+    pub fn unlock(&self, name: &str, pwd: String) -> Option<()> {
         let enc = self.secrets.load(name)?;
         match enc {
             PersistentSecret::Plaintext(sec) => {
                 self.unlocked_signers.insert(name.to_owned(), Arc::new(sec));
             }
             PersistentSecret::PasswordEncrypted(enc) => {
-                let decrypted = enc.decrypt(&pwd?)?;
+                let decrypted = enc.decrypt(&pwd)?;
                 self.unlocked_signers
                     .insert(name.to_owned(), Arc::new(decrypted));
             }
@@ -105,19 +104,13 @@ impl AppState {
     }
 
     /// Dumps a particular private key. Use carefully!
-    pub fn get_secret_key(
-        &self,
-        name: &str,
-        pwd: Option<String>,
-    ) -> Result<Option<Ed25519SK>, InvalidPassword> {
+    pub fn get_secret_key(&self, name: &str, pwd: &str) -> anyhow::Result<Option<Ed25519SK>> {
         let maybe_enc = self.secrets.load(name);
         if let Some(enc) = maybe_enc {
             match enc {
                 PersistentSecret::Plaintext(sk) => Ok(Some(sk)),
                 PersistentSecret::PasswordEncrypted(enc) => {
-                    let decrypted = enc
-                        .decrypt(&pwd.ok_or(InvalidPassword)?)
-                        .ok_or(InvalidPassword)?;
+                    let decrypted = enc.decrypt(pwd).context("cannot decrypt")?;
                     Ok(Some(decrypted))
                 }
             }
@@ -125,29 +118,27 @@ impl AppState {
             Ok(None)
         }
     }
-    pub async fn get_wallet(&self, name: &str) -> Option<Box<dyn Melwallet + Send + Sync>> {
-        Some(Box::new(self.database.get_wallet(name).await?))
+    pub async fn get_wallet(&self, name: &str) -> Option<Wallet> {
+        self.database.get_wallet(name).await
     }
+
     /// Locks a particular wallet.
     pub fn lock(&self, name: &str) {
         self.unlocked_signers.remove(name);
     }
 
     /// Creates a wallet with a given name.
-    pub async fn create_wallet(
+    pub async fn create_wallet_inner(
         &self,
         name: &str,
         key: Ed25519SK,
-        pwd: Option<String>,
+        pwd: String,
     ) -> anyhow::Result<()> {
         let covenant = Covenant::std_ed25519_pk_new(key.to_public());
         self.database.create_wallet(name, covenant).await?;
         self.secrets.store(
             name.to_owned(),
-            match pwd {
-                Some(pwd) => PersistentSecret::PasswordEncrypted(EncryptedSK::new(key, &pwd)),
-                None => PersistentSecret::Plaintext(key),
-            },
+            PersistentSecret::PasswordEncrypted(EncryptedSK::new(key, &pwd)),
         );
         log::info!("created wallet with name {}", name);
         Ok(())

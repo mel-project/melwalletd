@@ -30,7 +30,6 @@ pub struct Args {
     /// Address of full node on specified `network`. Required when using networks other than "mainnet" and "testnet"
     pub connect: Option<SocketAddr>,
 
-    
     /// melwalletd server address
     #[clap(long, short = 'l', default_value = "127.0.0.1:11774", display_order(4))]
     pub listen: SocketAddr,
@@ -38,11 +37,11 @@ pub struct Args {
     /// melwalletd legacy server address
     #[clap(long, short = 'L', default_value = "127.0.0.1:11773", display_order(5))]
     pub legacy_listen: SocketAddr,
-    
+
     /// Prevent legacy server startup
     #[clap(long, short, default_value = "*", display_order(998))]
     pub no_legacy: bool,
-    
+
     /// CORS origins allowed to access daemon
     pub allowed_origin: Vec<String>, // TODO: validate as urls
 

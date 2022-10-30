@@ -2,6 +2,7 @@ mod cli;
 mod database;
 mod protocol;
 mod secrets;
+mod signer;
 mod state;
 use std::convert::TryFrom;
 
@@ -9,14 +10,15 @@ use std::{ffi::CString, sync::Arc};
 
 use anyhow::Context;
 
-use melwalletd_prot::protocol::MelwalletdService;
+use http_types::headers::HeaderValue;
+
 use state::AppState;
 use tap::Tap;
 
 use clap::Parser;
+use tide::{security::CorsMiddleware, Request, Server};
 
 use crate::cli::*;
-use crate::protocol::rpc::MelwalletdRpcImpl;
 
 use crate::{database::Database, secrets::SecretStore};
 use themelio_nodeprot::ValClient;
@@ -77,15 +79,12 @@ fn main() -> anyhow::Result<()> {
         }
 
         // Prepare to create server
-        let state = Arc::new(AppState::new(db, network, secrets, addr, client));
+        let state = AppState::new(db, network, secrets, addr, client);
         let config = Arc::new(config);
-        type WalletType = MelwalletdRpcImpl;
 
         let _task = match config.legacy_listen {
             Some(sock) => {
-                let rpc: WalletType = MelwalletdRpcImpl::new(state.clone());
-
-                let app = crate::protocol::legacy::init_server(config.clone(), rpc).await?;
+                let app = init_server(config.clone(), state.clone()).await?;
                 let legacy_endpoints = crate::protocol::legacy::legacy_server(app)?;
                 let server = legacy_endpoints.listen(sock);
                 log::info!("Starting legacy server at {}", sock);
@@ -105,19 +104,56 @@ fn main() -> anyhow::Result<()> {
             _ => None,
         };
 
-        {
-            let rpc: WalletType = MelwalletdRpcImpl::new(state.clone());
-            let service = MelwalletdService(rpc);
+        let mut app = init_server(config.clone(), state).await?;
 
-            let app = crate::protocol::legacy::init_server(config.clone(), service).await?;
-
-            let sock = config.listen;
-            let legacy = crate::protocol::rpc_server(app).await?;
-            log::info!("Starting rpc server at {}", config.listen);
-            legacy.listen(sock).await?;
-            log::info!("Closing rpc server");
-
-        };
+        let sock = config.listen;
+        crate::protocol::route_rpc(&mut app).await;
+        log::info!("Starting rpc server at {}", config.listen);
+        app.listen(sock).await?;
         Ok(())
     })
+}
+
+async fn init_server<T: Send + Sync + Clone + 'static>(
+    config: Arc<Config>,
+    state: T,
+) -> anyhow::Result<Server<T>> {
+    let mut app = tide::with_state(state);
+
+    app.with(tide::utils::Before(log_request));
+
+    // interpret errors
+    app.with(tide::utils::After(|mut res: tide::Response| async move {
+        if let Some(err) = res.error() {
+            // put the error string in the response
+            let err_str = format!("ERROR: {:?}", err);
+            log::warn!("{}", err_str);
+            res.set_body(err_str);
+        }
+        Ok(res)
+    }));
+
+    let cors = generate_cors(config.allowed_origins.clone());
+
+    app.with(cors);
+
+    Ok(app)
+}
+
+async fn log_request<T>(req: Request<T>) -> Request<T> {
+    log::info!("{}", req.url());
+    req
+}
+
+fn generate_cors(origins: Vec<String>) -> CorsMiddleware {
+    let cors = origins
+        .iter()
+        .fold(CorsMiddleware::new(), |cors, val| {
+            let s: &str = val;
+            cors.allow_origin(s)
+        })
+        .allow_methods("GET, POST, PUT".parse::<HeaderValue>().unwrap())
+        .allow_credentials(false);
+
+    cors
 }

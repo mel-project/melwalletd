@@ -1927,7 +1927,7 @@ dependencies = [
 
 [[package]]
 name = "melwalletd"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "acidjson",
  "anyhow",

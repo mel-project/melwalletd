@@ -18,7 +18,10 @@ use tap::Tap;
 use clap::Parser;
 use tide::{security::CorsMiddleware, Request, Server};
 
-use crate::cli::*;
+use crate::{
+    cli::*,
+    protocol::{legacy::route_legacy, route_rpc},
+};
 
 use crate::{database::Database, secrets::SecretStore};
 use themelio_nodeprot::ValClient;
@@ -82,32 +85,13 @@ fn main() -> anyhow::Result<()> {
         let state = AppState::new(db, network, secrets, addr, client);
         let config = Arc::new(config);
 
-        let _task = match config.legacy_listen {
-            Some(sock) => {
-                let app = init_server(config.clone(), state.clone()).await?;
-                let legacy_endpoints = crate::protocol::legacy::legacy_server(app)?;
-                let server = legacy_endpoints.listen(sock);
-                log::info!("Starting legacy server at {}", sock);
-                let task = smolscale::spawn(async move {
-                    let s = server.await;
-                    match s {
-                        Ok(_) => (),
-                        Err(e) => {
-                            log::error!("{}", e);
-                            panic!("{}", e)
-                        }
-                    };
-                    log::info!("Legacy server terminated");
-                });
-                Some(task)
-            }
-            _ => None,
-        };
-
         let mut app = init_server(config.clone(), state).await?;
 
         let sock = config.listen;
-        crate::protocol::route_rpc(&mut app).await;
+        // new RPC interface
+        route_rpc(&mut app);
+        // old REST-based interface
+        route_legacy(&mut app);
         log::info!("Starting rpc server at {}", config.listen);
         app.listen(sock).await?;
         Ok(())

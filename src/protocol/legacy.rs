@@ -72,7 +72,7 @@ pub async fn list_wallets(req: Request<AppState>) -> tide::Result<Body> {
 pub async fn create_wallet(mut req: Request<AppState>) -> tide::Result<Body> {
     #[derive(Deserialize, Debug, Default)]
     struct Query {
-        password: String,
+        password: Option<String>,
         secret: Option<String>,
     }
 
@@ -82,7 +82,11 @@ pub async fn create_wallet(mut req: Request<AppState>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     Body::from_json(
         &req.state()
-            .create_wallet(wallet_name, query.password, query.secret)
+            .create_wallet(
+                wallet_name,
+                query.password.unwrap_or_default(),
+                query.secret,
+            )
             .await?,
     )
 }
@@ -111,13 +115,14 @@ pub async fn lock_wallet(req: Request<AppState>) -> tide::Result<Body> {
 pub async fn unlock_wallet(mut req: Request<AppState>) -> tide::Result<Body> {
     #[derive(Deserialize)]
     struct Req {
-        password: String,
+        password: Option<String>,
     }
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let request: Req = req.body_json().await?;
     // attempt to unlock
     let rpc = req.state();
-    rpc.unlock_wallet(wallet_name, request.password).await?;
+    rpc.unlock_wallet(wallet_name, request.password.unwrap_or_default())
+        .await?;
     Ok("".into())
 }
 
@@ -188,7 +193,7 @@ pub async fn send_faucet(req: Request<AppState>) -> tide::Result<Body> {
 //     todo!()
 // }
 
-pub fn legacy_server(mut app: Server<AppState>) -> anyhow::Result<Server<AppState>> {
+pub fn route_legacy(app: &mut Server<AppState>) {
     app.at("/summary").get(get_summary);
     app.at("/pools/:pair").get(get_pool);
     app.at("/pool_info").post(get_pool_info);
@@ -207,5 +212,4 @@ pub fn legacy_server(mut app: Server<AppState>) -> anyhow::Result<Server<AppStat
     app.at("/wallets/:name/transactions/:txhash").get(get_tx);
     app.at("/wallets/:name/transactions/:txhash/balance")
         .get(get_tx_balance);
-    Ok(app)
 }

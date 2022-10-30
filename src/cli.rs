@@ -31,16 +31,8 @@ pub struct Args {
     pub connect: Option<SocketAddr>,
 
     /// melwalletd server address
-    #[clap(long, short = 'l', default_value = "127.0.0.1:11774", display_order(4))]
+    #[clap(long, short = 'l', default_value = "127.0.0.1:11773", display_order(4))]
     pub listen: SocketAddr,
-
-    /// melwalletd legacy server address
-    #[clap(long, short = 'L', default_value = "127.0.0.1:11773", display_order(5))]
-    pub legacy_listen: SocketAddr,
-
-    /// Prevent legacy server startup
-    #[clap(long, short, default_value = "*", display_order(998))]
-    pub no_legacy: bool,
 
     /// CORS origins allowed to access daemon
     pub allowed_origin: Vec<String>, // TODO: validate as urls
@@ -64,7 +56,6 @@ pub struct Args {
 #[derive(Deserialize, Debug, Serialize)]
 pub struct Config {
     pub wallet_dir: PathBuf,
-    pub legacy_listen: Option<SocketAddr>,
     pub listen: SocketAddr,
     pub network_addr: SocketAddr,
     pub allowed_origins: Vec<String>,
@@ -74,7 +65,6 @@ impl Config {
     fn new(
         wallet_dir: PathBuf,
         listen: SocketAddr,
-        legacy_listen: Option<SocketAddr>,
         allowed_origins: Vec<String>,
         network_addr: SocketAddr,
         network: NetID,
@@ -82,7 +72,6 @@ impl Config {
         Config {
             wallet_dir,
             listen,
-            legacy_listen,
             network_addr,
             allowed_origins,
             network,
@@ -115,11 +104,9 @@ impl TryFrom<Args> for Config {
                             "No bootstrap nodes available for network: {network:?}"
                         )
                     });
-                let legacy_listen = args.no_legacy.then(|| args.legacy_listen);
                 Ok(Config::new(
                     args.wallet_dir.unwrap(),
                     args.listen,
-                    legacy_listen,
                     args.allowed_origin,
                     network_addr,
                     network,

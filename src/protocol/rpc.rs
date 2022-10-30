@@ -441,7 +441,7 @@ impl MelwalletdProtocol for AppState {
 }
 
 /// Starts the RPC tide route
-pub async fn route_rpc(app: &mut Server<AppState>) {
+pub fn route_rpc(app: &mut Server<AppState>) {
     app.at("").post(move |mut r: Request<AppState>| {
         let service = r.state().clone();
         async move {

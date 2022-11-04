@@ -1980,9 +1980,9 @@ dependencies = [
 
 [[package]]
 name = "melwalletd-prot"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e53f03386135b18a29eca1510beb07bc2d7c44a38d71c1be69b42b6add884b"
+checksum = "1158810b4f648e5722d20087bc2ec290497e83658b70bcdb30af49f65b37d035"
 dependencies = [
  "anyhow",
  "async-trait",

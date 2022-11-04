@@ -22,6 +22,10 @@ use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 
 #[async_trait]
 impl MelwalletdProtocol for AppState {
+    async fn list_wallets(&self) -> Vec<String> {
+        self.list_wallets().await.keys().cloned().collect()
+    }
+
     async fn wallet_summary(
         &self,
         wallet_name: String,

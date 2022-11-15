@@ -24,6 +24,7 @@ features = ["arbitrary_precision"]
 
 [patch.crates-io]
 # themelio-nodeprot={path="../themelio-nodeprot"}
+melwalletd-prot={path="../melwalletd-prot"}
 
 [dependencies]
 acidjson = "0.1.2"
@@ -57,10 +58,9 @@ smolscale= "0.3.43"
 tap = "1.0.1"
 themelio-bootstrap = "0.7.2"
 themelio-nodeprot = "0.12.1"
-# melnet = "0.2.27"
-
 themelio-stf = "0.11.12"
 themelio-structs = "0.2.10"
+
 tide = "0.16.0"
 tmelcrypt = "0.2.4"
 tracing = "0.1.37"

@@ -4,8 +4,9 @@ mod protocol;
 mod secrets;
 mod signer;
 mod state;
-use std::convert::TryFrom;
 
+
+use std::convert::TryFrom;
 use std::{ffi::CString, sync::Arc};
 
 use anyhow::Context;
@@ -25,10 +26,13 @@ use crate::{
 
 use crate::{database::Database, secrets::SecretStore};
 use themelio_nodeprot::ValClient;
-use themelio_structs::NetID;
+use themelio_structs::{NetID, PoolKey};
 
 fn main() -> anyhow::Result<()> {
+
     smolscale::block_on(async {
+        let pk = PoolKey::new(themelio_structs::Denom::Mel, themelio_structs::Denom::Sym);
+        println!("{}", serde_json::to_string(&themelio_structs::Denom::Mel).unwrap());
         // let clap = __clap;
         let cmd_args = Args::from_args();
         let output_config = cmd_args.output_config;

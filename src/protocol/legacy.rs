@@ -1,5 +1,6 @@
 use melwalletd_prot::types::{PrepareTxArgs, WalletAccessError};
 use melwalletd_prot::MelwalletdProtocol;
+use stdcode::SerializeAsString;
 use tide::{Request, Server};
 
 use crate::state::AppState;
@@ -48,7 +49,11 @@ pub async fn get_pool(req: Request<AppState>) -> tide::Result<Body> {
     let pool_key = pool_key
         .to_canonical()
         .ok_or_else(|| to_badreq(anyhow!("bad pool key")))?;
-    Body::from_json(&req.state().melswap_info(pool_key).await?)
+    Body::from_json(
+        &req.state()
+            .melswap_info(SerializeAsString(pool_key))
+            .await?,
+    )
 }
 
 pub async fn get_pool_info(req: Request<AppState>) -> tide::Result<Body> {
@@ -62,7 +67,11 @@ pub async fn get_pool_info(req: Request<AppState>) -> tide::Result<Body> {
     let value = query.value;
     let from = Denom::from_bytes(&hex::decode(&query.from)?).context("oh no")?;
     let to = Denom::from_bytes(&hex::decode(&query.to)?).context("oh no")?;
-    Body::from_json(&req.state().simulate_swap(to, from, value).await?)
+    Body::from_json(
+        &req.state()
+            .simulate_swap(SerializeAsString(to), SerializeAsString(from), value)
+            .await?,
+    )
 }
 
 pub async fn list_wallets(req: Request<AppState>) -> tide::Result<Body> {
@@ -154,7 +163,7 @@ pub async fn send_tx(mut req: Request<AppState>) -> tide::Result<Body> {
     let wallet_name = req.param("name").map(|v| v.to_string())?;
     let tx: Transaction = req.body_json().await?;
     let rpc = req.state();
-    let tx_hash = rpc.send_tx(wallet_name, tx).await?;
+    let tx_hash = rpc.send_tx(wallet_name, tx.into()).await?;
     Body::from_json(&tx_hash)
 }
 

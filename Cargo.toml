@@ -25,6 +25,7 @@ features = ["arbitrary_precision"]
 [patch.crates-io]
 # themelio-nodeprot={path="../themelio-nodeprot"}
 melwalletd-prot={path="../melwalletd-prot"}
+themelio-structs={path="../themelio-structs"}
 
 [dependencies]
 acidjson = "0.1.2"

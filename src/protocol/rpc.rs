@@ -10,7 +10,8 @@ use melwalletd_prot::{
         AnnCoinID, CreateWalletError, NeedWallet, NetworkError, PrepareTxArgs, PrepareTxError,
         SwapInfo, TransactionStatus, TxBalance, WalletAccessError, WalletSummary,
     },
-    HeaderDef, MelwalletdProtocol, MelwalletdService, WalletSummaryDef, TransactionDef, TransactionStatusDef,
+    HeaderDef, MelwalletdProtocol, MelwalletdService, TransactionDef, TransactionStatusDef,
+    WalletSummaryDef,
 };
 use nanorpc::RpcService;
 use stdcode::SerializeAsString;

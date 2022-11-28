@@ -10,6 +10,7 @@ use anyhow::Context;
 use dashmap::DashMap;
 use melwalletd_prot::types::WalletSummary;
 use smol_timeout::TimeoutExt;
+use stdcode::SerializeAsString;
 use themelio_nodeprot::ValClient;
 use themelio_stf::melvm::Covenant;
 use themelio_structs::{Denom, NetID};
@@ -65,11 +66,12 @@ impl AppState {
         for name in mlist.into_iter() {
             let wallet = self.database.get_wallet(&name).await.unwrap();
             let balance = wallet.get_balances().await;
+            let detailed_balance = balance
+            .iter()
+            .map(|(k, v)| (SerializeAsString(k.clone()), v.clone()))
+            .collect();
             let summary = WalletSummary {
-                detailed_balance: balance
-                    .iter()
-                    .map(|(k, v)| (hex::encode(&k.to_bytes()), *v))
-                    .collect(),
+                detailed_balance,
                 total_micromel: balance.get(&Denom::Mel).copied().unwrap_or_default(),
                 network: self.network,
                 address: wallet.address(),
@@ -162,7 +164,7 @@ pub async fn confirm_task(database: Database, client: ValClient) {
                             .await;
                         match r {
                             None => log::warn!("sync {} timed out", wname),
-                            Some(Err(err)) => log::warn!("sync {} failed: {:?}", wname, err),
+                            Some(Err(err)) => log::warn!("sync {} failed: {:?}; is `themelio-node` running with `--index-coins`?", wname, err),
                             _ => (),
                         }
                     }

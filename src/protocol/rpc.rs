@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use crate::state::AppState;
+use anyhow::Context;
 use async_trait::async_trait;
 use base32::Alphabet;
 
@@ -10,14 +11,13 @@ use melwalletd_prot::{
         AnnCoinID, CreateWalletError, NeedWallet, NetworkError, PrepareTxArgs, PrepareTxError,
         SwapInfo, TransactionStatus, TxBalance, WalletAccessError, WalletSummary,
     },
-    HeaderDef, MelwalletdProtocol, MelwalletdService, TransactionDef, TransactionStatusDef,
-    WalletSummaryDef,
+    MelwalletdProtocol, MelwalletdService,
 };
 use nanorpc::RpcService;
 use stdcode::SerializeAsString;
 use themelio_structs::{
-    BlockHeight, CoinData, CoinID, CoinValue, Denom, NetID, PoolKey, PoolState, Transaction,
-    TxHash, TxKind,
+    BlockHeight, CoinData, CoinID, CoinValue, Denom, Header, NetID, PoolKey, PoolState,
+    Transaction, TxHash, TxKind,
 };
 use tide::{Request, Server};
 use tmelcrypt::{Ed25519SK, HashVal, Hashable};
@@ -31,17 +31,15 @@ impl MelwalletdProtocol for AppState {
     async fn wallet_summary(
         &self,
         wallet_name: String,
-    ) -> Result<WalletSummaryDef, WalletAccessError> {
+    ) -> Result<WalletSummary, WalletAccessError> {
         let wallet_list = self.list_wallets().await;
-        let ws = wallet_list
+        wallet_list
             .get(&wallet_name)
             .cloned()
             .ok_or(WalletAccessError::NotFound)
-            .map(WalletSummaryDef::from);
-        ws
     }
 
-    async fn latest_header(&self) -> Result<HeaderDef, NetworkError> {
+    async fn latest_header(&self) -> Result<Header, NetworkError> {
         let snap = self
             .client()
             .snapshot()
@@ -109,7 +107,7 @@ impl MelwalletdProtocol for AppState {
             let new_price = new_pool_state.lefts as f64 / new_pool_state.rights as f64;
             SwapInfo {
                 result: new,
-                price_impact: (new_price / old_price - 1.0),
+                slippage: ((new_price - old_price) * 1_000_000.0) as u128,
                 poolkey: hex::encode(pool_key.to_bytes()),
             }
         } else {
@@ -119,7 +117,7 @@ impl MelwalletdProtocol for AppState {
             let new_price = new_pool_state.rights as f64 / new_pool_state.lefts as f64;
             SwapInfo {
                 result: new,
-                price_impact: (new_price / old_price - 1.0),
+                slippage: ((new_price - old_price) * 1_000_000.0) as u128,
                 poolkey: hex::encode(pool_key.to_bytes()),
             }
         };
@@ -214,14 +212,24 @@ impl MelwalletdProtocol for AppState {
         &self,
         wallet_name: String,
         request: PrepareTxArgs,
-    ) -> Result<TransactionDef, NeedWallet<PrepareTxError>> {
+    ) -> Result<Transaction, NeedWallet<PrepareTxError>> {
         let signing_key = self
             .get_signer(&wallet_name)
             .ok_or(NeedWallet::Wallet(WalletAccessError::NotFound))?;
+        let is_locked = self
+            .wallet_summary(wallet_name.clone())
+            .await
+            .context("can't fail by not finding the wallet since the line above would catch that")
+            .unwrap()
+            .locked;
+        if is_locked{
+            return Err(NeedWallet::Wallet(WalletAccessError::Locked))
+        }
         let wallet = self
             .get_wallet(&wallet_name)
             .await
-            .ok_or(NeedWallet::Wallet(WalletAccessError::NotFound))?;
+            .context("the wallet both exists and is unlocked at this point")
+            .unwrap();
 
         // calculate fees
         let snapshot = self
@@ -270,9 +278,9 @@ impl MelwalletdProtocol for AppState {
     async fn send_tx(
         &self,
         wallet_name: String,
-        tx: TransactionDef,
+        tx: Transaction,
     ) -> Result<TxHash, NeedWallet<NetworkError>> {
-        let tx: Transaction = tx.into();
+        let tx: Transaction = tx;
         let wallet = self
             .get_wallet(&wallet_name)
             .await
@@ -358,14 +366,14 @@ impl MelwalletdProtocol for AppState {
         }
         let r = TxBalance(self_originated, raw.kind, balance);
 
-        Ok(Some(r))
+        Ok(Some(r.into()))
     }
 
     async fn tx_status(
         &self,
         wallet_name: String,
         txhash: HashVal,
-    ) -> Result<Option<TransactionStatusDef>, WalletAccessError> {
+    ) -> Result<Option<TransactionStatus>, WalletAccessError> {
         let wallet = if let Some(wallet) = self.get_wallet(&wallet_name).await {
             wallet
         } else {
@@ -410,8 +418,8 @@ impl MelwalletdProtocol for AppState {
                 return Ok(None);
             }
         }
-        Ok(Some(TransactionStatusDef {
-            raw,
+        Ok(Some(TransactionStatus {
+            raw: raw.into(),
             confirmed_height,
             outputs,
         }))

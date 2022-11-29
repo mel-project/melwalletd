@@ -125,24 +125,33 @@ async fn init_server<T: Send + Sync + Clone + 'static>(
 }
 
 async fn log_request<T>(mut req: Request<T>) -> Request<T> {
+    let None = req.url().path_segments() else {
+        // the path is more than / indicating this may be a legacy endpoint request
+        log::info!("{}", req.url());
+        return req
+    };
     let maybe_body = req.body_string().await;
     let Ok(body) = maybe_body else {
-        log::info!("{}", req.url());
+        log::warn!("IO error or unable to decode body as UTF-8");
         return req
     };
     req.set_body(body.clone());
     let maybe_json_req: Result<nanorpc::JrpcRequest, _> = serde_json::from_str(&body);
     let Ok(json_req) = maybe_json_req else {
+        log::warn!("Body isn't shaped like nanorpc::JrpcRequest");
         return req;
     };
 
+    // if debug mode is enabled, output the whole request
     if log::log_enabled!(log::Level::Debug) {
         log::debug!(
             "{}: {}",
             json_req.method,
             serde_json::to_string_pretty(&json_req.params).unwrap()
         );
-    } else {
+    } 
+    // else just output the method
+    else {
         log::info!("{}", json_req.method,);
     }
     req

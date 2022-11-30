@@ -20,6 +20,28 @@ May 18 16:20:43.583  INFO melwalletd: opened wallet directory: []
 
 If the directory doesn't exist it will be created. By default, melwalletd will start listening on `localhost:11773`.
 
+For more information about command flags use the `--help` flag
+
+```
+ ▶ melwalletd --help
+melwalletd
+
+USAGE:
+    melwalletd [OPTIONS] <--wallet-dir <WALLET_DIR>|--config <CONFIG>>
+
+OPTIONS:
+        --wallet-dir <WALLET_DIR>            Required: directory of the wallet database
+        --network <NETWORK>                  Network ID: "testnet", "custom02",... [default: mainnet]
+        --connect <CONNECT>                  IP of full node on specified `network`; Required when not collecting to
+                                             "mainnet" or "testnet"
+        --listen <LISTEN>                    IP to host melwalletd server [default: 127.0.0.1:11773]
+    -a, --allowed-origin <ALLOWED_ORIGIN>    CORS origins allowed to access daemon [default: *]
+        --config <CONFIG>
+        --dry-run                            run without starting server
+        --output-config                      send the generated config to stdout
+    -h, --help                               Print help information
+```
+
 ---
 
 ## Managing wallets

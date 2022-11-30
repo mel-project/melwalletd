@@ -648,6 +648,8 @@ impl Wallet {
             .await
             .map_err(|e| anyhow::anyhow!(e))?
             .context("get_some_coins returned nothing")?;
+
+        // This happens when TIP-906 isn't applied
         if remote_coin_list.len() != remote_coin_count as usize {
             anyhow::bail!("remote coin list is bad")
         }

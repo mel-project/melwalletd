@@ -83,6 +83,7 @@ impl MelwalletdProtocol for AppState {
         let pool_key = pool_key
             .to_canonical()
             .ok_or_else(|| NetworkError::Fatal("invalid pool key".into()))?;
+        log::info!("{},{}", pool_key, value);
 
         let pool_state = if let Some(state) = self
             .client()
@@ -108,7 +109,7 @@ impl MelwalletdProtocol for AppState {
             SwapInfo {
                 result: new,
                 slippage: ((new_price - old_price) * 1_000_000.0) as u128,
-                poolkey: hex::encode(pool_key.to_bytes()),
+                poolkey: pool_key,
             }
         } else {
             let old_price = pool_state.rights as f64 / pool_state.lefts as f64;
@@ -118,7 +119,7 @@ impl MelwalletdProtocol for AppState {
             SwapInfo {
                 result: new,
                 slippage: ((new_price - old_price) * 1_000_000.0) as u128,
-                poolkey: hex::encode(pool_key.to_bytes()),
+                poolkey: pool_key,
             }
         };
         Ok(Some(r))
@@ -222,8 +223,8 @@ impl MelwalletdProtocol for AppState {
             .context("can't fail by not finding the wallet since the line above would catch that")
             .unwrap()
             .locked;
-        if is_locked{
-            return Err(NeedWallet::Wallet(WalletAccessError::Locked))
+        if is_locked {
+            return Err(NeedWallet::Wallet(WalletAccessError::Locked));
         }
         let wallet = self
             .get_wallet(&wallet_name)
@@ -341,26 +342,26 @@ impl MelwalletdProtocol for AppState {
         // Is this self-originated? We check the covenants
         let self_originated = raw.covenants.iter().any(|c| c.hash() == wallet.address().0);
         // Total balance out
-        let mut balance: BTreeMap<String, i128> = BTreeMap::new();
+        let mut balance: BTreeMap<SerializeAsString<Denom>, i128> = BTreeMap::new();
         // Add all outputs to balance
 
         if self_originated {
             *balance
-                .entry(hex::encode(Denom::Mel.to_bytes()))
+                .entry(SerializeAsString(Denom::Mel))
                 .or_default() -= raw.fee.0 as i128;
         }
         for (idx, output) in raw.outputs.iter().enumerate() {
             let coinid = raw.output_coinid(idx as u8);
-            let denom_key = hex::encode(output.denom.to_bytes());
+            let denom_key = output.denom;
             // first we *deduct* any balance if this self-originated
             if self_originated {
-                *balance.entry(denom_key).or_default() -= output.value.0 as i128;
+                *balance.entry(SerializeAsString(denom_key)).or_default() -= output.value.0 as i128;
             }
             // then, if we find this value in our coins, we add it back. this turns out to take care of swap tx well
             if let Some(ours) = wallet.get_one_coin(coinid).await {
-                let denom_key = hex::encode(ours.denom.to_bytes());
+                let denom_key = ours.denom;
                 if ours.covhash == wallet.address() {
-                    *balance.entry(denom_key).or_default() += ours.value.0 as i128;
+                    *balance.entry(SerializeAsString(denom_key)).or_default() += ours.value.0 as i128;
                 }
             }
         }

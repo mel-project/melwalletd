@@ -125,7 +125,7 @@ async fn init_server<T: Send + Sync + Clone + 'static>(
 }
 
 async fn log_request<T>(mut req: Request<T>) -> Request<T> {
-    let None = req.url().path_segments() else {
+    if req.url().path()  != "/" {
         // the path is more than / indicating this may be a legacy endpoint request
         log::info!("{}", req.url());
         return req

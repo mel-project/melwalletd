@@ -52,6 +52,9 @@ pub struct Args {
     #[clap(long, display_order(998))]
     /// run without starting server
     pub dry_run: bool,
+    #[clap(long, display_order(999))]
+    /// run server with debug logging enabled, this logs all requests and responses to stdout
+    pub debug: bool,
 }
 
 #[derive(Deserialize, Debug, Serialize)]
@@ -61,6 +64,7 @@ pub struct Config {
     pub network_addr: SocketAddr,
     pub allowed_origins: Vec<String>,
     pub network: NetID,
+    pub debug: bool,
 }
 impl Config {
     fn new(
@@ -69,6 +73,7 @@ impl Config {
         allowed_origins: Vec<String>,
         network_addr: SocketAddr,
         network: NetID,
+        debug: bool,
     ) -> Config {
         Config {
             wallet_dir,
@@ -76,6 +81,7 @@ impl Config {
             network_addr,
             allowed_origins,
             network,
+            debug,
         }
     }
 }
@@ -110,6 +116,7 @@ impl TryFrom<Args> for Config {
                     args.allowed_origin,
                     network_addr,
                     network,
+                    args.debug,
                 ))
             }
         }

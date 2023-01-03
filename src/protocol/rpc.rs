@@ -83,7 +83,6 @@ impl MelwalletdProtocol for AppState {
         let pool_key = pool_key
             .to_canonical()
             .ok_or_else(|| NetworkError::Fatal("invalid pool key".into()))?;
-        log::info!("{},{}", pool_key, value);
 
         let pool_state = if let Some(state) = self
             .client()

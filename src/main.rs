@@ -66,7 +66,7 @@ fn main() -> anyhow::Result<()> {
         let secrets = SecretStore::open(&secret_path)?;
 
         let log_conf =
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,info,warn".into());
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=info,warn".into());
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
 

@@ -35,11 +35,12 @@ pub struct Args {
     pub listen: SocketAddr,
 
     /// CORS origins allowed to access daemon
+    #[clap(long, default_value = "127.0.0.1", display_order(998))]
     pub allowed_origin: Vec<String>, // TODO: validate as urls
 
     #[serde(skip_serializing)]
     #[clap(long, display_order(998))]
-    ///
+    /// Use a config file to avoid long, unwieldy cli args; Config files override all cli options
     pub config: Option<String>,
 
     #[serde(skip_serializing)]
@@ -89,7 +90,6 @@ impl TryFrom<Args> for Config {
                 let mut buf: String = "".into();
                 config_file.read_to_string(&mut buf)?;
                 let config: Config = serde_yaml::from_str(&buf)?;
-
                 anyhow::Ok(config)
             }
             None => {

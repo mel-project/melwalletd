@@ -4,8 +4,8 @@ mod protocol;
 mod secrets;
 mod signer;
 mod state;
-use std::convert::TryFrom;
 
+use std::convert::TryFrom;
 use std::{ffi::CString, sync::Arc};
 
 use anyhow::Context;
@@ -29,7 +29,6 @@ use themelio_structs::NetID;
 
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
-        // let clap = __clap;
         let cmd_args = Args::from_args();
         let output_config = cmd_args.output_config;
         let dry_run = cmd_args.dry_run;
@@ -66,7 +65,8 @@ fn main() -> anyhow::Result<()> {
         secret_path.push(".secrets.json");
         let secrets = SecretStore::open(&secret_path)?;
 
-        let log_conf = std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,warn".into());
+        let log_conf =
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=info,warn".into());
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
 
@@ -124,8 +124,36 @@ async fn init_server<T: Send + Sync + Clone + 'static>(
     Ok(app)
 }
 
-async fn log_request<T>(req: Request<T>) -> Request<T> {
-    log::info!("{}", req.url());
+async fn log_request<T>(mut req: Request<T>) -> Request<T> {
+    if req.url().path()  != "/" {
+        // the path is more than / indicating this may be a legacy endpoint request
+        log::info!("{}", req.url());
+        return req
+    };
+    let maybe_body = req.body_string().await;
+    let Ok(body) = maybe_body else {
+        log::warn!("IO error or unable to decode body as UTF-8");
+        return req
+    };
+    req.set_body(body.clone());
+    let maybe_json_req: Result<nanorpc::JrpcRequest, _> = serde_json::from_str(&body);
+    let Ok(json_req) = maybe_json_req else {
+        log::warn!("Body isn't shaped like nanorpc::JrpcRequest");
+        return req;
+    };
+
+    // if debug mode is enabled, output the whole request
+    if log::log_enabled!(log::Level::Debug) {
+        log::debug!(
+            "{}: {}",
+            json_req.method,
+            serde_json::to_string_pretty(&json_req.params).unwrap()
+        );
+    } 
+    // else just output the method
+    else {
+        log::info!("{}", json_req.method,);
+    }
     req
 }
 

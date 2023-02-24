@@ -59,7 +59,7 @@ tap = "1.0.1"
 themelio-bootstrap = "0.7.2"
 themelio-nodeprot = "0.12.1"
 themelio-stf = "0.11.12"
-themelio-structs = "0.2.12"
+themelio-structs = "0.2.11"
 
 tide = "0.16.0"
 tmelcrypt = "0.2.4"

@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 
 use lru::LruCache;
-use themelio_stf::melvm::Covenant;
-use themelio_structs::{Transaction, TxHash};
+use melstructs::{Transaction, TxHash};
+use melvm::Covenant;
 use tmelcrypt::Ed25519SK;
 
 /// This trait is implemented by anything "secret key-like" that can sign a transaction. This includes secret keys, password-encumbered secret keys,
@@ -28,9 +28,9 @@ impl Signer for Ed25519SK {
         });
         // fill any previous signature slots with zeros
         while txn.sigs.len() <= input_idx {
-            txn.sigs.push(vec![]);
+            txn.sigs.push(Default::default());
         }
-        txn.sigs[input_idx] = signature;
+        txn.sigs[input_idx] = signature.into();
         Ok(txn)
     }
 

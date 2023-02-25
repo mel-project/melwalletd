@@ -12,6 +12,7 @@ use anyhow::Context;
 
 use http_types::headers::HeaderValue;
 
+use melprot::Client;
 use state::AppState;
 use tap::Tap;
 
@@ -24,8 +25,8 @@ use crate::{
 };
 
 use crate::{database::Database, secrets::SecretStore};
-use themelio_nodeprot::ValClient;
-use themelio_structs::NetID;
+
+use melstructs::NetID;
 
 fn main() -> anyhow::Result<()> {
     smolscale::block_on(async {
@@ -70,15 +71,15 @@ fn main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", log_conf);
         tracing_subscriber::fmt::init();
 
-        let client = ValClient::connect_melnet2_tcp(network, addr).await?;
+        let client = Client::connect_http(network, addr).await?;
 
         log::info!("Connecting to Node rpc @ {addr}");
 
         if network == NetID::Mainnet || network == NetID::Testnet {
-            client.trust(themelio_bootstrap::checkpoint_height(network).unwrap());
+            client.trust(melbootstrap::checkpoint_height(network).unwrap());
         } else {
             log::warn!("** BLINDLY TRUSTING FULL NODE due to custom network **");
-            client.insecure_latest_snapshot().await?;
+            client.dangerously_trust_latest().await?;
         }
 
         // Prepare to create server

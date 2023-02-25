@@ -8,11 +8,11 @@ use crate::{
 
 use anyhow::Context;
 use dashmap::DashMap;
+use melprot::Client;
+use melstructs::{Denom, NetID};
+use melvm::Covenant;
 use melwalletd_prot::types::WalletSummary;
 use smol_timeout::TimeoutExt;
-use themelio_nodeprot::ValClient;
-use themelio_stf::melvm::Covenant;
-use themelio_structs::{Denom, NetID};
 use tmelcrypt::Ed25519SK;
 
 /// Encapsulates all the state and logic needed for the wallet daemon.
@@ -20,7 +20,7 @@ use tmelcrypt::Ed25519SK;
 pub struct AppState {
     pub database: Arc<Database>,
     pub network: NetID,
-    pub _client: ValClient,
+    pub _client: Client,
     pub unlocked_signers: Arc<DashMap<String, Arc<dyn Signer>>>,
     pub secrets: Arc<SecretStore>,
     pub _confirm_task: Arc<smol::Task<()>>,
@@ -33,7 +33,7 @@ impl AppState {
         network: NetID,
         secrets: SecretStore,
         _addr: SocketAddr,
-        _client: ValClient,
+        _client: Client,
     ) -> Self {
         let _confirm_task = smolscale::spawn(confirm_task(database.clone(), _client.clone()));
 
@@ -49,7 +49,7 @@ impl AppState {
 }
 ///themelio_bootstrap::checkpoint_height(network).unwrap()
 impl AppState {
-    pub fn client(&self) -> ValClient {
+    pub fn client(&self) -> Client {
         self._client.clone()
     }
 
@@ -146,13 +146,13 @@ impl AppState {
 }
 
 // task that periodically pulls random coins to try to confirm
-pub async fn confirm_task(database: Database, client: ValClient) {
+pub async fn confirm_task(database: Database, client: Client) {
     let mut pacer = smol::Timer::interval(Duration::from_millis(15000));
     // let sent = Arc::new(Mutex::new(HashMap::new()));
     loop {
         let possible_wallets = database.list_wallets().await;
         log::trace!("-- confirm loop sees {} wallets --", possible_wallets.len());
-        match client.snapshot().await {
+        match client.latest_snapshot().await {
             Ok(snap) => {
                 for wname in possible_wallets {
                     if let Some(wallet) = database.get_wallet(&wname).await {

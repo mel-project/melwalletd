@@ -55,12 +55,12 @@ clap = { version = "3.2.23", features = ["derive"] }
 smol-timeout = "0.6.0"
 smolscale= "0.3.43"
 tap = "1.0.1"
-themelio-bootstrap = "0.7.2"
-themelio-nodeprot = "0.12.1"
+# themelio-bootstrap = { git = "https://github.com/themeliolabs/themelio-bootstrap", branch = "use-themelio-structs-0.3-beta" }
+# melprot = { git = "https://github.com/themeliolabs/themelio-nodeprot", branch = "use-themelio-structs-0.3-beta" }
 # melnet = "0.2.27"
 
-themelio-stf = "0.11.12"
-themelio-structs = "0.2.10"
+# themelio-stf = "0.11.12"
+# themelio-structs= "0.3.0-beta.6"
 tide = "0.16.0"
 tmelcrypt = "0.2.4"
 tracing = "0.1.37"
@@ -72,7 +72,12 @@ nanorpc = "0.1.12"
 async-trait = "0.1.58"
 route-recognizer = "0.3.1"
 futures = "0.3.25"
-melwalletd-prot = "0.2.0"
+melwalletd-prot = "0.3.0"
+bytes = "1.4.0"
+melstructs = "0.3.0"
+melprot = "0.13.0"
+melvm = "0.1.0"
+melbootstrap = "0.8.0"
 
 [dev-dependencies]
 

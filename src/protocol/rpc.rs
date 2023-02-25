@@ -4,7 +4,12 @@ use crate::state::AppState;
 use async_trait::async_trait;
 use base32::Alphabet;
 
+use bytes::Bytes;
 use http_types::Body;
+use melstructs::{
+    BlockHeight, CoinData, CoinID, CoinValue, Denom, Header, NetID, PoolKey, PoolState,
+    Transaction, TxHash, TxKind,
+};
 use melwalletd_prot::{
     types::{
         AnnCoinID, CreateWalletError, NeedWallet, NetworkError, PrepareTxArgs, PrepareTxError,
@@ -13,10 +18,6 @@ use melwalletd_prot::{
     MelwalletdProtocol, MelwalletdService,
 };
 use nanorpc::RpcService;
-use themelio_structs::{
-    BlockHeight, CoinData, CoinID, CoinValue, Denom, Header, NetID, PoolKey, PoolState,
-    Transaction, TxHash, TxKind,
-};
 use tide::{Request, Server};
 use tmelcrypt::{Ed25519SK, HashVal, Hashable};
 
@@ -40,20 +41,16 @@ impl MelwalletdProtocol for AppState {
     async fn latest_header(&self) -> Result<Header, NetworkError> {
         let snap = self
             .client()
-            .snapshot()
+            .latest_snapshot()
             .await
             .map_err(|e| NetworkError::Transient(e.to_string()))?;
         Ok(snap.current_header())
     }
 
     async fn melswap_info(&self, pool_key: PoolKey) -> Result<Option<PoolState>, NetworkError> {
-        let pool_key = pool_key
-            .to_canonical()
-            .ok_or_else(|| NetworkError::Fatal("invalid pool key".into()))?;
-
         let snapshot = self
             .client()
-            .snapshot()
+            .latest_snapshot()
             .await
             .map_err(|e| NetworkError::Transient(e.to_string()))?;
 
@@ -70,17 +67,11 @@ impl MelwalletdProtocol for AppState {
         from: Denom,
         value: u128,
     ) -> Result<Option<SwapInfo>, NetworkError> {
-        let pool_key = PoolKey {
-            left: to,
-            right: from,
-        };
-        let pool_key = pool_key
-            .to_canonical()
-            .ok_or_else(|| NetworkError::Fatal("invalid pool key".into()))?;
+        let pool_key = PoolKey::new(to, from);
 
         let pool_state = if let Some(state) = self
             .client()
-            .snapshot()
+            .latest_snapshot()
             .await
             .map_err(|e| NetworkError::Transient(e.to_string()))?
             .get_pool(pool_key)
@@ -92,7 +83,7 @@ impl MelwalletdProtocol for AppState {
             return Ok(None);
         };
 
-        let left_to_right = pool_key.left == from;
+        let left_to_right = pool_key.left() == from;
 
         let r = if left_to_right {
             let old_price = pool_state.lefts as f64 / pool_state.rights as f64;
@@ -218,15 +209,19 @@ impl MelwalletdProtocol for AppState {
         // calculate fees
         let snapshot = self
             .client()
-            .snapshot()
+            .latest_snapshot()
             .await
             .map_err(|e| PrepareTxError::Network(NetworkError::Transient(e.to_string())))?;
         let fee_multiplier = snapshot.current_header().fee_multiplier;
 
         let sign = {
-            let covenants = request.covenants.clone();
+            let covenants: Vec<Bytes> = request
+                .covenants
+                .iter()
+                .map(|cb| Bytes::copy_from_slice(cb))
+                .collect();
             let kind = request.kind;
-            let data = request.data;
+            let data: Bytes = request.data.into();
             move |mut tx: Transaction| {
                 tx.kind = kind;
 
@@ -249,7 +244,7 @@ impl MelwalletdProtocol for AppState {
                 request.nobalance.clone(),
                 request.fee_ballast,
                 self.client()
-                    .snapshot()
+                    .latest_snapshot()
                     .await
                     .map_err(|e| PrepareTxError::Network(NetworkError::Transient(e.to_string())))?,
             )
@@ -270,7 +265,7 @@ impl MelwalletdProtocol for AppState {
             .ok_or(NeedWallet::Wallet(WalletAccessError::NotFound))?;
         let snapshot = self
             .client()
-            .snapshot()
+            .latest_snapshot()
             .await
             .map_err(|e| NetworkError::Transient(e.to_string()))?;
 
@@ -308,7 +303,7 @@ impl MelwalletdProtocol for AppState {
         // The current approach is incorrect and returns a misleading error message.
         let snapshot = self
             .client()
-            .snapshot()
+            .latest_snapshot()
             .await
             .map_err(|e| WalletAccessError::Other(e.to_string()))?;
         let raw = wallet
@@ -427,7 +422,7 @@ impl MelwalletdProtocol for AppState {
                 covhash: wallet.address(),
                 value: CoinValue::from_millions(1001u64),
                 denom: Denom::Mel,
-                additional_data: vec![],
+                additional_data: vec![].into(),
             }],
             data: (0..32).map(|_| fastrand::u8(0..=255)).collect(),
             fee: CoinValue::from_millions(1001u64),

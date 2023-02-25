@@ -1,9 +1,9 @@
 use std::{convert::TryFrom, fs::File, io::Read, net::SocketAddr, path::PathBuf};
 
 use clap::{ArgGroup, Parser};
+use melstructs::NetID;
 use serde::*;
 use terminal_size::{terminal_size, Width};
-use themelio_structs::NetID;
 #[derive(Parser, Clone, Deserialize, Debug)]
 #[clap(group(
     ArgGroup::new("options")
@@ -117,7 +117,7 @@ impl TryFrom<Args> for Config {
 }
 
 fn first_bootstrap_route(network: NetID) -> Option<SocketAddr> {
-    let routes = themelio_bootstrap::bootstrap_routes(network);
+    let routes = melbootstrap::bootstrap_routes(network);
     if routes.is_empty() {
         None
     } else {

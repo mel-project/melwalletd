@@ -7,8 +7,8 @@ use crate::state::AppState;
 use anyhow::anyhow;
 use anyhow::Context;
 use http_types::{convert::Deserialize, Body, StatusCode};
+use melstructs::{Denom, PoolKey, Transaction};
 use std::fmt::Debug;
-use themelio_structs::{Denom, PoolKey, Transaction};
 use tmelcrypt::HashVal;
 
 fn to_badreq<E: Into<anyhow::Error> + Send + 'static + Sync + Debug>(e: E) -> tide::Error {
@@ -45,9 +45,7 @@ pub async fn get_pool(req: Request<AppState>) -> tide::Result<Body> {
         .replace(':', "/")
         .parse()
         .map_err(to_badreq)?;
-    let pool_key = pool_key
-        .to_canonical()
-        .ok_or_else(|| to_badreq(anyhow!("bad pool key")))?;
+
     Body::from_json(&req.state().melswap_info(pool_key).await?)
 }
 

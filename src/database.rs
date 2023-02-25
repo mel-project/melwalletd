@@ -9,14 +9,14 @@ use anyhow::Context;
 
 use binary_search::Direction;
 
-use rusqlite::{params, OptionalExtension};
-use stdcode::StdcodeSerializeExt;
-use themelio_nodeprot::ValClientSnapshot;
-use themelio_stf::melvm::{covenant_weight_from_bytes, Covenant};
-use themelio_structs::{
+use melprot::Snapshot;
+use melstructs::{
     Address, BlockHeight, CoinData, CoinDataHeight, CoinID, CoinValue, Denom, Transaction, TxHash,
     TxKind,
 };
+use melvm::{covenant_weight_from_bytes, Covenant};
+use rusqlite::{params, OptionalExtension};
+use stdcode::StdcodeSerializeExt;
 
 use self::pool::ConnPool;
 
@@ -112,13 +112,13 @@ impl Database {
         let conn = self.pool.get_conn().await;
         conn.execute(
             "insert into wallet_names values ($1, $2, $3)",
-            params![name, covhash.to_string(), covenant.0],
+            params![name, covhash.to_string(), covenant.to_bytes().to_vec()],
         )?;
         Ok(())
     }
 
     /// Retransmit pending transactions
-    pub async fn retransmit_pending(&self, snapshot: ValClientSnapshot) -> anyhow::Result<()> {
+    pub async fn retransmit_pending(&self, snapshot: Snapshot) -> anyhow::Result<()> {
         let mut conn = self.pool.get_conn().await;
         let txn = conn.transaction()?;
         let mut stmt =
@@ -160,7 +160,7 @@ impl Wallet {
     pub async fn get_transaction(
         &self,
         txhash: TxHash,
-        snapshot: ValClientSnapshot,
+        snapshot: Snapshot,
     ) -> anyhow::Result<Option<Transaction>> {
         // if cached, get cached
         if let Some(tx) = self.get_cached_transaction(txhash).await {
@@ -322,7 +322,7 @@ impl Wallet {
                 covhash: self.covhash,
                 value,
                 denom,
-                additional_data,
+                additional_data: additional_data.into(),
             };
             let coinid: CoinID = coinid.parse().unwrap();
             toret.insert(coinid, cdata);
@@ -341,10 +341,10 @@ impl Wallet {
         nobalance: Vec<Denom>,
         fee_ballast: usize,
 
-        snap: ValClientSnapshot,
+        snap: Snapshot,
     ) -> anyhow::Result<Transaction> {
         let mut nobalance = nobalance;
-        nobalance.push(Denom::NewCoin);
+        nobalance.push(Denom::NewCustom);
         let nobalance = nobalance;
         let mut mandatory_inputs = BTreeMap::new();
         // first we add the "mandatory" inputs
@@ -368,8 +368,8 @@ impl Wallet {
                 inputs: vec![],
                 outputs: outputs.clone(),
                 fee,
-                covenants: vec![self.covenant.clone()],
-                data: vec![],
+                covenants: vec![self.covenant.clone().into()],
+                data: vec![].into(),
                 sigs: vec![],
             };
 
@@ -438,20 +438,20 @@ impl Wallet {
                                     covhash: self.covhash,
                                     value: first_half,
                                     denom: *cointype,
-                                    additional_data: vec![],
+                                    additional_data: Default::default(),
                                 });
                                 change.push(CoinData {
                                     covhash: self.covhash,
                                     value: second_half,
                                     denom: *cointype,
-                                    additional_data: vec![],
+                                    additional_data: Default::default(),
                                 })
                             } else {
                                 change.push(CoinData {
                                     covhash: self.covhash,
                                     value: difference,
                                     denom: *cointype,
-                                    additional_data: vec![],
+                                    additional_data: Default::default(),
                                 })
                             }
                         }
@@ -544,7 +544,7 @@ impl Wallet {
         if txn.kind == TxKind::Normal {
             for (i, output) in txn.outputs.iter().enumerate() {
                 let coinid = txn.output_coinid(i as u8);
-                let denom = if output.denom == Denom::NewCoin {
+                let denom = if output.denom == Denom::NewCustom {
                     Denom::Custom(txn.hash_nosigs())
                 } else {
                     output.denom
@@ -555,8 +555,8 @@ impl Wallet {
                         coinid.to_string(),
                         output.covhash.to_string(),
                         output.value.0.to_string(),
-                        denom.to_bytes(),
-                        output.additional_data.clone()
+                        denom.to_bytes().to_vec(),
+                        output.additional_data.to_vec()
                     ],
                 )?;
                 conn.execute(
@@ -590,7 +590,7 @@ impl Wallet {
             covhash: result.0.parse().unwrap(),
             value: CoinValue(result.1.parse().unwrap()),
             denom: Denom::from_bytes(&result.2).unwrap(),
-            additional_data: result.3,
+            additional_data: result.3.into(),
         };
         Some(cd)
     }
@@ -614,7 +614,7 @@ impl Wallet {
     }
 
     /// Updates the list of coins, given a network snapshot.
-    pub async fn network_sync(&self, snapshot: ValClientSnapshot) -> anyhow::Result<()> {
+    pub async fn network_sync(&self, snapshot: Snapshot) -> anyhow::Result<()> {
         // The basic idea is that we get the list of coins from the remote, then add them all to the wallet.
         // However, we also need to take care of "disappearing" coins. If we have a confirmed coin that is no longer in the latest set, it must have been spent somewhere along the way. If we don't already have the transactions that spends it in the "spends", we must find that transaction through a binary search between the block where that coin was confirmed and the current block --- otherwise we cannot mark that coin as spent.
 
@@ -736,8 +736,8 @@ impl Wallet {
                     coin.to_string(),
                     cdh.coin_data.covhash.to_string(),
                     cdh.coin_data.value.0.to_string(),
-                    cdh.coin_data.denom.to_bytes(),
-                    cdh.coin_data.additional_data
+                    cdh.coin_data.denom.to_bytes().to_vec(),
+                    cdh.coin_data.additional_data.to_vec()
                 ],
             )
             .unwrap();

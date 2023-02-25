@@ -4,7 +4,6 @@ use tide::{Request, Server};
 
 use crate::state::AppState;
 
-use anyhow::anyhow;
 use anyhow::Context;
 use http_types::{convert::Deserialize, Body, StatusCode};
 use melstructs::{Denom, PoolKey, Transaction};

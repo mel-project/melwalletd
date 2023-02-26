@@ -67,10 +67,7 @@ impl AppState {
             let wallet = self.database.get_wallet(&name).await.unwrap();
             let balance = wallet.get_balances().await;
             let summary = WalletSummary {
-                detailed_balance: balance
-                    .iter()
-                    .map(|(k, v)| (hex::encode(&k.to_bytes()), *v))
-                    .collect(),
+                detailed_balance: balance.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 total_micromel: balance.get(&Denom::Mel).copied().unwrap_or_default(),
                 network: self.network,
                 address: wallet.address(),

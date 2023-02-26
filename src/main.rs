@@ -17,7 +17,7 @@ use state::AppState;
 use tap::Tap;
 
 use clap::Parser;
-use tide::{security::CorsMiddleware, Request, Server};
+use tide::{security::CorsMiddleware, Server};
 
 use crate::{
     cli::*,

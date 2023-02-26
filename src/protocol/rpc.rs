@@ -200,7 +200,7 @@ impl MelwalletdProtocol for AppState {
     ) -> Result<Transaction, NeedWallet<PrepareTxError>> {
         let signing_key = self
             .get_signer(&wallet_name)
-            .ok_or(NeedWallet::Wallet(WalletAccessError::NotFound))?;
+            .ok_or(NeedWallet::Wallet(WalletAccessError::Locked))?;
         let wallet = self
             .get_wallet(&wallet_name)
             .await

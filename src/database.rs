@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     path::Path,
     sync::Arc,
     time::Instant,
@@ -9,7 +9,7 @@ use anyhow::Context;
 
 use binary_search::Direction;
 
-use dashmap::DashMap;
+
 use futures::{StreamExt, TryStreamExt};
 use melprot::Snapshot;
 use melstructs::{
@@ -723,7 +723,7 @@ impl Wallet {
                                     .context("coin not found here somehow")?;
                                 coin_list.lock().insert(coinid, data);
                             }
-                            melprot::CoinChange::Delete(coinid, txhash) => {
+                            melprot::CoinChange::Delete(_coinid, txhash) => {
                                 let spender = old_snap
                                     .get_transaction(txhash)
                                     .await?

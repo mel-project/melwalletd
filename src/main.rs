@@ -29,6 +29,9 @@ use crate::{database::Database, secrets::SecretStore};
 use melstructs::NetID;
 
 fn main() -> anyhow::Result<()> {
+    let log_conf = std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,warn".into());
+    std::env::set_var("RUST_LOG", log_conf);
+    env_logger::init();
     smolscale::block_on(async {
         // let clap = __clap;
         let cmd_args = Args::from_args();
@@ -67,13 +70,9 @@ fn main() -> anyhow::Result<()> {
         secret_path.push(".secrets.json");
         let secrets = SecretStore::open(&secret_path)?;
 
-        let log_conf = std::env::var("RUST_LOG").unwrap_or_else(|_| "melwalletd=debug,warn".into());
-        std::env::set_var("RUST_LOG", log_conf);
-        tracing_subscriber::fmt::init();
-
         let client = Client::connect_http(network, addr).await?;
 
-        log::info!("Connecting to Node rpc @ {addr}");
+        log::info!("using node RPC {addr}");
 
         if network == NetID::Mainnet || network == NetID::Testnet {
             client.trust(melbootstrap::checkpoint_height(network).unwrap());
@@ -93,7 +92,7 @@ fn main() -> anyhow::Result<()> {
         route_rpc(&mut app);
         // old REST-based interface
         route_legacy(&mut app);
-        log::info!("Starting rpc server at {}", config.listen);
+        log::info!("starting RPC server at {}", config.listen);
         app.listen(sock).await?;
         Ok(())
     })
@@ -104,8 +103,6 @@ async fn init_server<T: Send + Sync + Clone + 'static>(
     state: T,
 ) -> anyhow::Result<Server<T>> {
     let mut app = tide::with_state(state);
-
-    app.with(tide::utils::Before(log_request));
 
     // interpret errors
     app.with(tide::utils::After(|mut res: tide::Response| async move {
@@ -123,11 +120,6 @@ async fn init_server<T: Send + Sync + Clone + 'static>(
     app.with(cors);
 
     Ok(app)
-}
-
-async fn log_request<T>(req: Request<T>) -> Request<T> {
-    log::info!("{}", req.url());
-    req
 }
 
 fn generate_cors(origins: Vec<String>) -> CorsMiddleware {

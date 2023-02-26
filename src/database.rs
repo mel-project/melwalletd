@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::Path,
     sync::Arc,
     time::Instant,
@@ -9,12 +9,15 @@ use anyhow::Context;
 
 use binary_search::Direction;
 
+use dashmap::DashMap;
+use futures::{StreamExt, TryStreamExt};
 use melprot::Snapshot;
 use melstructs::{
     Address, BlockHeight, CoinData, CoinDataHeight, CoinID, CoinValue, Denom, Transaction, TxHash,
     TxKind,
 };
 use melvm::{covenant_weight_from_bytes, Covenant};
+use parking_lot::Mutex;
 use rusqlite::{params, OptionalExtension};
 use stdcode::StdcodeSerializeExt;
 
@@ -73,6 +76,11 @@ impl Database {
             "create table if not exists wallet_names (name primary key, covhash not null, covenant not null)",
             [],
         )?;
+        // sync records in the past
+        conn.execute(
+            "create table if not exists sync_heights (covhash primary key not null, height not null)",
+            [],
+           )?;
         Ok(Database { pool })
     }
 
@@ -613,123 +621,130 @@ impl Wallet {
         })
     }
 
-    /// Updates the list of coins, given a network snapshot.
-    pub async fn network_sync(&self, snapshot: Snapshot) -> anyhow::Result<()> {
-        // The basic idea is that we get the list of coins from the remote, then add them all to the wallet.
-        // However, we also need to take care of "disappearing" coins. If we have a confirmed coin that is no longer in the latest set, it must have been spent somewhere along the way. If we don't already have the transactions that spends it in the "spends", we must find that transaction through a binary search between the block where that coin was confirmed and the current block --- otherwise we cannot mark that coin as spent.
-
-        // First find the pending count
-        let pending_count: u64 = {
-            let conn = self.pool.get_conn().await;
-            conn.query_row("select count(txhash) from pending", params![], |r| r.get(0))
-                .unwrap()
+    async fn full_sync(&self, snapshot: Snapshot) -> anyhow::Result<()> {
+        log::warn!("VERY behind, so doing a full sync of {}", self.address());
+        let coins: BTreeMap<CoinID, CoinDataHeight> = {
+            let address: Address = self.address();
+            let coins = snapshot
+                .get_coins(address)
+                .await?
+                .context("server does not provide coin index")?;
+            log::debug!("got {} coins for {address}", coins.len());
+            coins
         };
 
-        // First step is to get the list of coins
-        // TODO something more efficient
-        let remote_coin_count = snapshot
-            .get_coin_count(self.covhash)
-            .await?
-            .unwrap_or_default();
-        // Then, we compare with the coins we already have
-        log::trace!("calling coin_mapping from sync");
-        let existing_coins = self.get_coin_mapping(true, false).await;
-        if existing_coins.len() == remote_coin_count as usize
-            && pending_count == 0
-            && fastrand::f64() < 0.95
-        // occasionally do a full sync
-        {
-            return Ok(());
-        }
-        // reconstruct the coin list
-        let remote_coin_list = snapshot
-            .get_raw()
-            .get_some_coins(snapshot.current_header().height, self.covhash)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?
-            .context("get_some_coins returned nothing")?;
-        if remote_coin_list.len() != remote_coin_count as usize {
-            anyhow::bail!("remote coin list is bad")
-        }
-        let mut coin_list = BTreeMap::new();
-        let mut potential_coins = vec![];
-        for coinid in remote_coin_list.iter().copied() {
-            if let Some(cdh) = self.get_coin_confirmation(coinid).await {
-                coin_list.insert(coinid, cdh);
-            } else {
-                let snapshot = snapshot.clone();
-                let task = smolscale::spawn(async move {
-                    snapshot
-                        .get_coin(coinid)
-                        .await?
-                        .context("self-contradictory coin list")
-                });
-                potential_coins.push((coinid, task));
-            }
-        }
-        for (coinid, task) in potential_coins {
-            log::debug!("resolving coinid {} => {}", coinid, coin_list.len());
-            let cdh = task.await?;
-            coin_list.insert(coinid, cdh);
-        }
-
-        // We take care of all disappearing coins
-        let mut new_spenders = HashSet::new();
-        let mut skip = HashSet::new();
-        for (disappeared_coin, _) in existing_coins
-            .iter()
-            .filter(|c| !coin_list.contains_key(c.0))
-        {
-            if skip.contains(disappeared_coin) {
-                continue;
-            }
-            if let Some(cdh) = self.get_coin_confirmation(*disappeared_coin).await {
-                let height = cdh.height;
-                log::debug!(
-                    "wallet {} lost coin {}, finding out why",
-                    self.name,
-                    disappeared_coin
-                );
-                // binary search for the first block in which this was gone
-                let mut left = height;
-                let mut right = snapshot.current_header().height;
-                while left < right {
-                    let median = (left + right) / 2;
-                    log::trace!("binary search at {} ({}..{})", median, left, right);
-                    if snapshot
-                        .get_older(median)
-                        .await?
-                        .get_coin(*disappeared_coin)
-                        .await?
-                        .is_some()
-                    {
-                        left = median + BlockHeight(1);
-                    } else {
-                        right = median;
-                    }
-                }
-                let spend_block = left;
-                let spender_tx = snapshot
-                    .get_older(spend_block)
-                    .await?
-                    .current_block()
-                    .await?
-                    .transactions
-                    .into_iter()
-                    .find(|tx| tx.inputs.contains(disappeared_coin))
-                    .context("bug: digged for the coin in the wrong place")?;
-                log::debug!("found spender: {}", spender_tx.hash_nosigs());
-                // we don't have to revisit other coins this same spender spends
-                for input in spender_tx.inputs.iter() {
-                    skip.insert(*input);
-                }
-                new_spenders.insert(spender_tx);
-            }
-        }
-        // we insert the coins and spenders in one atomic  transaction
         let mut conn = self.pool.get_conn().await;
         let txn = conn.transaction()?;
-        for (coin, cdh) in coin_list {
+        txn.execute(
+            "delete from coins where covhash = ?",
+            params![self.address().to_string()],
+        )?;
+        for (coin, cdh) in coins {
+            txn.execute(
+                "insert into coins values ($1, $2, $3, $4, $5) on conflict do nothing",
+                params![
+                    coin.to_string(),
+                    cdh.coin_data.covhash.to_string(),
+                    cdh.coin_data.value.0.to_string(),
+                    cdh.coin_data.denom.to_bytes().to_vec(),
+                    cdh.coin_data.additional_data.to_vec()
+                ],
+            )
+            .unwrap();
+            txn.execute(
+                "insert into coin_confirmations values ($1, $2) on conflict do nothing",
+                params![coin.to_string(), cdh.height.0],
+            )
+            .unwrap();
+        }
+        txn.execute(
+            "delete from sync_heights where covhash = ?",
+            params![self.address().to_string()],
+        )?;
+        txn.execute(
+            "insert into sync_heights (covhash, height) values ($1, $2)",
+            params![
+                self.address().to_string(),
+                snapshot.current_header().height.0
+            ],
+        )?;
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Updates the list of coins, given a network snapshot.
+    pub async fn network_sync(&self, snapshot: Snapshot) -> anyhow::Result<()> {
+        // we first obtain the current latest sync height
+        let latest_sync_height = {
+            let conn = self.pool.get_conn().await;
+            let height: Option<u64> = conn
+                .query_row(
+                    "select height from sync_heights where covhash = ?",
+                    params![self.address().to_string()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            height.unwrap_or(0)
+        };
+
+        // if we are WAY behind, do a FULL sync.
+        if snapshot
+            .current_header()
+            .height
+            .0
+            .saturating_sub(latest_sync_height)
+            > 10_000
+        {
+            return self.full_sync(snapshot).await;
+        }
+
+        if snapshot.current_header().height.0 <= latest_sync_height {
+            return Ok(());
+        }
+
+        // do a block-by-block sync
+        let coin_list = Mutex::new(HashMap::new());
+        let new_spenders = Mutex::new(vec![]);
+        futures::stream::iter(latest_sync_height..=snapshot.current_header().height.0)
+            .map(|height| {
+                let snapshot = snapshot.clone();
+                let coin_list = &coin_list;
+                let new_spenders = &new_spenders;
+                async move {
+                    log::trace!("going through height {height} for {}", self.address());
+                    let old_snap = snapshot.get_older(height.into()).await?;
+                    let diffs = old_snap.get_coin_changes(self.address()).await?;
+                    for diff in diffs {
+                        match diff {
+                            melprot::CoinChange::Add(coinid) => {
+                                let data = old_snap
+                                    .get_coin(coinid)
+                                    .await?
+                                    .context("coin not found here somehow")?;
+                                coin_list.lock().insert(coinid, data);
+                            }
+                            melprot::CoinChange::Delete(coinid, txhash) => {
+                                let spender = old_snap
+                                    .get_transaction(txhash)
+                                    .await?
+                                    .context("tx not found somehow")?;
+                                new_spenders.lock().push(spender);
+                            }
+                        }
+                    }
+                    anyhow::Ok(())
+                }
+            })
+            .buffered(16)
+            .try_for_each(|_| async { Ok(()) })
+            .await?;
+
+        let coin_list = coin_list.into_inner();
+        let new_spenders = new_spenders.into_inner();
+
+        let mut conn = self.pool.get_conn().await;
+        let txn = conn.transaction()?;
+        for (coin, cdh) in coin_list.iter() {
             txn.execute(
                 "insert into coins values ($1, $2, $3, $4, $5) on conflict do nothing",
                 params![
@@ -758,9 +773,7 @@ impl Wallet {
         }
 
         // remove all pendings that have confirmation
-        let confirmed_txhashes: HashSet<TxHash> =
-            remote_coin_list.into_iter().map(|c| c.txhash).collect();
-        for txhash in confirmed_txhashes {
+        for txhash in coin_list.keys().map(|c| c.txhash) {
             txn.execute(
                 "delete from pending where txhash = $1",
                 params![txhash.to_string()],
@@ -777,7 +790,19 @@ impl Wallet {
 
         // remove all pending coins that no longer correspond to pending
         txn.execute("delete from pending_coins where not exists (select expires from pending where pending.txhash = pending_coins.txhash)", params![])?;
-
+        // commit
+        txn.execute(
+            "delete from sync_heights where covhash = ?",
+            params![self.address().to_string()],
+        )?;
+        txn.execute(
+            "insert into sync_heights (covhash, height) values ($1, $2)",
+            params![
+                self.address().to_string(),
+                snapshot.current_header().height.0
+            ],
+        )?;
+        log::trace!("finished with {}", self.address());
         txn.commit()?;
         Ok(())
     }

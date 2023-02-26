@@ -129,7 +129,7 @@ impl MelwalletdProtocol for AppState {
             vv[32..].copy_from_slice(&public.to_bytes());
             Ed25519SK(vv)
         } else {
-            tmelcrypt::ed25519_keygen().1
+            Ed25519SK::generate()
         };
         match self.create_wallet_inner(&wallet_name, sk, password).await {
             Ok(_) => Ok(()),

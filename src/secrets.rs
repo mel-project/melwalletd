@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn simple() {
-        let (_, sk) = tmelcrypt::ed25519_keygen();
+        let sk = Ed25519SK::generate();
         let encrypted = EncryptedSK::new(sk, "hello world");
         assert!(encrypted.decrypt("hello world").is_some());
         assert!(encrypted.decrypt("hello worldr").is_none())

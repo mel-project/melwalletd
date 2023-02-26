@@ -8,6 +8,7 @@ use crate::{
 
 use anyhow::Context;
 use dashmap::DashMap;
+use futures::StreamExt;
 use melprot::Client;
 use melstructs::{Denom, NetID};
 use melvm::Covenant;
@@ -154,19 +155,30 @@ pub async fn confirm_task(database: Database, client: Client) {
         log::trace!("-- confirm loop sees {} wallets --", possible_wallets.len());
         match client.latest_snapshot().await {
             Ok(snap) => {
-                for wname in possible_wallets {
-                    if let Some(wallet) = database.get_wallet(&wname).await {
-                        let r = wallet
-                            .network_sync(snap.clone())
-                            .timeout(Duration::from_secs(120))
-                            .await;
-                        match r {
-                            None => log::warn!("sync {} timed out", wname),
-                            Some(Err(err)) => log::warn!("sync {} failed: {:?}", wname, err),
-                            _ => (),
+                futures::stream::iter(possible_wallets)
+                    .map(|wname| {
+                        let database = &database;
+                        let snap = &snap;
+                        async move {
+                            if let Some(wallet) = database.get_wallet(&wname).await {
+                                let r = wallet
+                                    .network_sync(snap.clone())
+                                    .timeout(Duration::from_secs(120))
+                                    .await;
+                                match r {
+                                    None => log::warn!("sync {} timed out", wname),
+                                    Some(Err(err)) => {
+                                        log::warn!("sync {} failed: {:?}", wname, err)
+                                    }
+                                    _ => (),
+                                }
+                            }
                         }
-                    }
-                }
+                    })
+                    .buffer_unordered(6)
+                    .count()
+                    .await;
+
                 let _ = database
                     .retransmit_pending(snap)
                     .timeout(Duration::from_secs(10))

@@ -9,7 +9,6 @@ use anyhow::Context;
 
 use binary_search::Direction;
 
-
 use futures::{StreamExt, TryStreamExt};
 use melprot::Snapshot;
 use melstructs::{
@@ -526,7 +525,7 @@ impl Wallet {
             |a| gen_transaction(CoinValue(a)),
         );
         log::debug!("prepared TX with fee {:?}", val.as_ref().map(|v| v.fee));
-        val.context("preparation failed")
+        val
     }
 
     /// Sets transactions as sent
@@ -639,6 +638,12 @@ impl Wallet {
             "delete from coins where covhash = ?",
             params![self.address().to_string()],
         )?;
+        for txhash in coins.keys().map(|c| c.txhash) {
+            txn.execute(
+                "delete from pending where txhash = $1",
+                params![txhash.to_string()],
+            )?;
+        }
         for (coin, cdh) in coins {
             txn.execute(
                 "insert into coins values ($1, $2, $3, $4, $5) on conflict do nothing",
@@ -668,6 +673,7 @@ impl Wallet {
                 snapshot.current_header().height.0
             ],
         )?;
+
         txn.commit()?;
         Ok(())
     }
@@ -688,12 +694,13 @@ impl Wallet {
         };
 
         // if we are WAY behind, do a FULL sync.
-        if snapshot
-            .current_header()
-            .height
-            .0
-            .saturating_sub(latest_sync_height)
-            > 10_000
+        if latest_sync_height == 0
+            || snapshot
+                .current_header()
+                .height
+                .0
+                .saturating_sub(latest_sync_height)
+                > 10_000
         {
             return self.full_sync(snapshot).await;
         }

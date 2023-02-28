@@ -712,7 +712,7 @@ impl Wallet {
         // do a block-by-block sync
         let coin_list = Mutex::new(HashMap::new());
         let new_spenders = Mutex::new(vec![]);
-        futures::stream::iter(latest_sync_height..=snapshot.current_header().height.0)
+        futures::stream::iter((latest_sync_height + 1)..=snapshot.current_header().height.0)
             .map(|height| {
                 let snapshot = snapshot.clone();
                 let coin_list = &coin_list;

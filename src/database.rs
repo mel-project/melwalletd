@@ -700,7 +700,7 @@ impl Wallet {
                 .height
                 .0
                 .saturating_sub(latest_sync_height)
-                > 10_000
+                > 1_000
         {
             return self.full_sync(snapshot).await;
         }

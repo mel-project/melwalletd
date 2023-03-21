@@ -5,8 +5,9 @@ use melstructs::NetID;
 use serde::*;
 use terminal_size::{terminal_size, Width};
 #[derive(Parser, Clone, Deserialize, Debug)]
-#[clap(group(
-    ArgGroup::new("options")
+#[clap(
+    version,
+    group(ArgGroup::new("options")
         .required(true)
         .args(&["wallet-dir", "config"])),
     max_term_width(1024),
